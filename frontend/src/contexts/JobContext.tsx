@@ -3,11 +3,12 @@ import type { Dispatch, SetStateAction } from 'react';
 import { createContext, useContext, useState, useMemo, useCallback, useEffect } from 'react';
 import type { JobResult, AppFile, AppFileWithRetry } from '@/types';
 import { useToast } from '@/hooks/use-toast';
-import { extractData, type ExtractDataInput } from '@/ai/flows/extract-data-flow';
+import { backendAIService } from '@/services/backend-api';
 import { visualizeThinking, type VisualizeThinkingInput, type VisualizeThinkingStreamChunk, type VisualizeThinkingOutput } from '@/ai/flows/visualize-thinking';
 import * as CachingService from '@/ai/caching-service';
 import { v4 as uuidv4 } from 'uuid';
 import type { CachePricing } from '@/ai/caching-service';
+import { useLLMConfig } from '@/contexts/LLMContext';
 
 export type ThinkingDetailLevel = 'brief' | 'standard' | 'detailed'; 
 
@@ -54,7 +55,8 @@ interface JobContextType {
     userPromptTemplate: string,
     examples: any[], 
     llmProvider: string,
-    model: string,
+    extractionModel: string,
+    agnoModel: string,
     llmApiKey: string, 
     llmNumericThinkingBudget: number | undefined,
     llmTemperature: number,
@@ -107,6 +109,9 @@ export function JobProvider({ children }: { children: React.ReactNode }) {
   const [cachePricePerMillionTokens, setCachePricePerMillionTokens] = useState<number>(0.15); // Default price
   const [currentCacheId, setCurrentCacheId] = useState<string | undefined>(undefined);
   const [loadedCacheStats, setLoadedCacheStats] = useState<CachingService.CacheUsageStats | null>(null);
+  
+  // Get backend models for pricing calculation
+  const { backendModels } = useLLMConfig();
 
   // Add cache pricing state
   const [cachePricing, setCachePricing] = useState<CachePricing>({
@@ -235,14 +240,16 @@ export function JobProvider({ children }: { children: React.ReactNode }) {
     userPromptTemplate: string,
     examples: any[],
     llmProvider: string,
-    model: string,
+    extractionModel: string,
+    agnoModel: string,
     llmApiKey: string,
     llmNumericThinkingBudget: number | undefined,
     llmTemperature: number,
     useAgnoProcessing: boolean = false
   ) => {
     console.log("Provider:", llmProvider);
-    console.log("Model:", model);
+    console.log("Extraction Model:", extractionModel);
+    console.log("Agno Model:", agnoModel);
     console.log("Max Retries:", maxRetriesPerFile);
     console.log("Thinking Enabled:", thinkingEnabled);
     console.log("Thinking Detail Level:", thinkingDetailLevel);
@@ -295,33 +302,35 @@ export function JobProvider({ children }: { children: React.ReactNode }) {
       let extractedDataJson: string | null = null;
       let finalThinkingProcess: string | null = null; 
       let errorMsg: string | undefined;
-      let tokens: { promptTokens?: number; completionTokens?: number; totalTokens?: number; estimatedTokens?: number; tokenBreakdown?: Record<string, number> } = {};
+      let tokens: { promptTokens?: number; completionTokens?: number; totalTokens?: number; estimatedTokens?: number; tokenBreakdown?: Record<string, number>; thinkingTokens?: number; agnoTokens?: { input_tokens?: number; output_tokens?: number; total_tokens?: number; cached_tokens?: number; reasoning_tokens?: number; }; agnoProcessingCost?: number } = {};
       let jobStatus: JobResult['status'] = 'retrying';
 
       try {
-        const extractionInput: ExtractDataInput = {
-          documentFile: {
-            name: fileJob.name,
-            type: fileJob.type,
-            dataUri: fileJob.dataUri,
-            textContent: fileJob.textContent,
+        // Prepare extraction input for backend API
+        const extractionInput = {
+          documentText: fileJob.textContent,
+          documentFile: fileJob.textContent ? undefined : {
+            mimeType: fileJob.type,
+            data: fileJob.dataUri.split(',')[1] || fileJob.dataUri, // Remove data URI prefix if present
           },
           schemaDefinition: schemaJson,
           systemPrompt: systemPrompt,
           userTaskDescription: userPromptTemplate,
-          examples: examples,
-          llmProvider: llmProvider,
-          modelName: model,
-          numericThinkingBudget: llmNumericThinkingBudget,
+          examples: examples?.map(ex => ({
+            input: ex.input,
+            output: ex.output
+          })),
+          provider: llmProvider || 'googleAI',
+          modelName: extractionModel, // Use extraction model for data extraction
           temperature: llmTemperature,
-          // Add cache parameters
+          thinkingBudget: llmNumericThinkingBudget,
           useCache: useCaching,
-          cacheId: currentCacheId, // Use existing cache ID if available
-          cachePricePerMillionTokens: cachePricePerMillionTokens, // Add price for token calculation
+          cacheId: currentCacheId,
+          maxRetries: 0, // Handle retries at JobContext level
         };
         
         setCurrentTask(`Extracting data from ${fileJob.name}...`);
-        const extractionOutput = await extractData(extractionInput);
+        const extractionOutput = await backendAIService.extractData(extractionInput);
         
         console.log(`\n=== EXTRACTION OUTPUT DEBUG ===`);
         console.log(`File: ${fileJob.name}`);
@@ -336,44 +345,40 @@ export function JobProvider({ children }: { children: React.ReactNode }) {
         
         extractedDataJson = extractionOutput.extractedJson;
         tokens = {
-          promptTokens: extractionOutput.promptTokens,
-          completionTokens: extractionOutput.completionTokens,
-          totalTokens: extractionOutput.totalTokens,
-          estimatedTokens: extractionOutput.estimatedTokens,
-          tokenBreakdown: extractionOutput.breakdownByType,
+          promptTokens: extractionOutput.tokenUsage.promptTokens,
+          completionTokens: extractionOutput.tokenUsage.completionTokens,
+          totalTokens: extractionOutput.tokenUsage.totalTokens,
+          estimatedTokens: undefined, // Backend doesn't provide pre-estimation
+          tokenBreakdown: undefined, // Backend doesn't provide breakdown
+          thinkingTokens: extractionOutput.tokenUsage.thinkingTokens,
         };
         
-        // If using cache and extraction was successful, capture the cache ID for next file
-        if (useCaching && extractionOutput.cacheSavingsInfo?.cacheId) {
-          setCurrentCacheId(extractionOutput.cacheSavingsInfo.cacheId);
-          
-          const cacheHit = extractionOutput.cacheSavingsInfo.cacheHit;
-          const tokensSaved = extractionOutput.cacheSavingsInfo.tokensSaved;
-          const cachedTokens = extractionOutput.cacheSavingsInfo.cachedTokens;
+        // If using cache and extraction was successful, log cache results
+        if (useCaching) {
+          const cacheHit = extractionOutput.cacheHit;
+          const cachedTokens = extractionOutput.tokenUsage.cachedTokens || 0;
           
           console.log(`\n=== CACHE RESULTS ===`);
           console.log(`File: ${fileJob.name}`);
           console.log(`Cache Hit: ${cacheHit ? 'Yes' : 'No'}`);
-          console.log(`Cache ID: ${extractionOutput.cacheSavingsInfo.cacheId}`);
+          console.log(`Cache ID: ${currentCacheId || 'N/A'}`);
           
-          if (cacheHit && tokensSaved) {
+          if (cacheHit && cachedTokens > 0) {
+            const tokensSaved = cachedTokens;
             const savingsAmount = (tokensSaved / 1000000) * cachePricePerMillionTokens;
-            console.log(`Tokens Saved: ${tokensSaved.toLocaleString()}`);
+            console.log(`Cached Tokens: ${cachedTokens.toLocaleString()}`);
             console.log(`Estimated Savings: $${savingsAmount.toFixed(6)}`);
           }
           
-          if (cachedTokens) {
-            console.log(`Cached Tokens: ${cachedTokens.toLocaleString()}`);
-          }
-          
-          console.log(`Expiration: ${extractionOutput.cacheSavingsInfo.expireTime}`);
-          console.log(`Using for next extraction: ${extractionOutput.cacheSavingsInfo.cacheId}`);
           console.log(`=====================\n`);
         }
 
-        if (thinkingEnabled) {
+        if (thinkingEnabled && extractionOutput.thinkingText) {
           setCurrentTask(`Visualizing thinking for ${fileJob.name}...`);
           let accumulatedThinkingForFile = "";
+          
+          // Backend provides thinking text directly if available
+          accumulatedThinkingForFile = extractionOutput.thinkingText;
           
           const thinkingQuery = `Task: ${userPromptTemplate.substring(0,150)}...\nSchema: ${schemaJson.substring(0, 150)}...\nDocument: ${fileJob.name} (${fileJob.type})`;
           const explanationBudgetForViz = mapDetailLevelToNumericBudget(thinkingDetailLevel);
@@ -382,7 +387,7 @@ export function JobProvider({ children }: { children: React.ReactNode }) {
             query: thinkingQuery, 
             explanationDetailBudget: explanationBudgetForViz,
             llmProvider: llmProvider, 
-            modelName: model, 
+            modelName: extractionModel, // Use extraction model for thinking visualization
             temperature: llmTemperature,
           };
 
@@ -431,7 +436,7 @@ export function JobProvider({ children }: { children: React.ReactNode }) {
                 extractedData: extractedDataJson,
                 fileName: fileJob.name,
                 llmProvider: llmProvider,
-                model: model,
+                model: agnoModel, // Use agno model for Agno AI processing
                 apiKey: llmApiKey,
                 temperature: llmTemperature
               }),
@@ -505,6 +510,32 @@ export function JobProvider({ children }: { children: React.ReactNode }) {
         }
       }
 
+      // Store model information for pricing calculation (use extraction model for cost calculation)
+      const usedModel = extractionModel;
+      const modelInfo = backendModels.find(m => m.id === usedModel);
+      let modelPricing = undefined;
+      let calculatedCost = 0;
+      
+      if (modelInfo?.pricing && tokens.promptTokens && tokens.completionTokens) {
+        const inputPrice = typeof modelInfo.pricing.input === 'number' 
+          ? modelInfo.pricing.input 
+          : (modelInfo.pricing.input?.text || modelInfo.pricing.input?.default || 0);
+        const outputPrice = typeof modelInfo.pricing.output === 'number'
+          ? modelInfo.pricing.output
+          : (modelInfo.pricing.output?.text || modelInfo.pricing.output?.default || 0);
+        
+        modelPricing = { inputPrice, outputPrice };
+        
+        // Calculate cost for this job
+        const thinkingTokens = tokens.totalTokens 
+          ? Math.max(0, tokens.totalTokens - tokens.promptTokens - tokens.completionTokens)
+          : 0;
+        
+        calculatedCost = (tokens.promptTokens / 1_000_000) * inputPrice +
+                        (tokens.completionTokens / 1_000_000) * outputPrice +
+                        (thinkingTokens / 1_000_000) * outputPrice; // Thinking uses output pricing
+      }
+
       addJobResult({
         jobId: fileJob.jobId,
         fileName: fileJob.name,
@@ -520,6 +551,9 @@ export function JobProvider({ children }: { children: React.ReactNode }) {
         agnoTokens: tokens.agnoTokens,
         agnoProcessingCost: tokens.agnoProcessingCost,
         status: isCancelled && jobStatus !== 'success' ? 'failed' : jobStatus,
+        model: usedModel,
+        modelPricing: modelPricing,
+        calculatedCost: calculatedCost,
       });
       
       // Log token usage for this job
@@ -529,14 +563,9 @@ export function JobProvider({ children }: { children: React.ReactNode }) {
       console.log(`Prompt Tokens: ${tokens.promptTokens || 'N/A'}`);
       console.log(`Completion Tokens: ${tokens.completionTokens || 'N/A'}`);
       
-      // Calculate and log thinking tokens
-      const promptTokens = tokens.promptTokens || 0;
-      const completionTokens = tokens.completionTokens || 0;
-      const totalTokens = tokens.totalTokens || 0;
-      const thinkingTokens = totalTokens - (promptTokens + completionTokens);
-      
-      if (tokens.promptTokens !== undefined && tokens.completionTokens !== undefined && tokens.totalTokens !== undefined) {
-        console.log(`Thinking Tokens: ${thinkingTokens > 0 ? thinkingTokens : 0} (billed as output tokens)`);
+      // Log thinking tokens if available from backend
+      if (tokens.thinkingTokens !== undefined) {
+        console.log(`Thinking Tokens: ${tokens.thinkingTokens} (billed as output tokens)`);
       }
       
       console.log(`Total Tokens: ${tokens.totalTokens || 'N/A'}`);

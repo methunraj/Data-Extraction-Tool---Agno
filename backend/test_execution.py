@@ -4,7 +4,7 @@ import os
 import tempfile
 import json
 import glob
-from app.services import create_code_gen_agent
+from app.agents import create_agent
 
 test_data = {
     "company": "Test Corp",
@@ -16,7 +16,7 @@ print("=== Testing Code Execution Fix ===")
 with tempfile.TemporaryDirectory() as temp_dir:
     print(f"Temp directory: {temp_dir}")
     
-    agent = create_code_gen_agent(temp_dir)
+    agent = create_agent('codegen', temp_dir=temp_dir)
     
     # Use the same prompt format as the workflow
     plan = "Create a simple Excel report with company data"

@@ -12,9 +12,13 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Request, BackgroundTasks
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.concurrency import run_in_threadpool
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.exceptions import RequestValidationError
 
-from . import schemas, services
+from . import services
+from .main_schemas import ProcessRequest, ProcessResponse, SystemMetrics
 from .core.config import settings
+from .routers import extraction_router, generation_router, models_router, cache_router, agents_router
 
 # --- Application State and Logging ---
 app_state = {}
@@ -53,6 +57,47 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+# Add custom validation error handler
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    """Custom validation error handler to provide better error messages."""
+    logger.error(f"Validation error for {request.url}: {exc.errors()}")
+    
+    # Convert error details to be JSON serializable
+    error_details = []
+    for error in exc.errors():
+        error_detail = {
+            "type": error.get("type"),
+            "location": error.get("loc"),
+            "message": error.get("msg"),
+            "input": str(error.get("input", ""))[:500] + "..." if len(str(error.get("input", ""))) > 500 else str(error.get("input", ""))  # Truncate long inputs
+        }
+        error_details.append(error_detail)
+    
+    return JSONResponse(
+        status_code=422,
+        content={
+            "detail": error_details,
+            "url": str(request.url)
+        }
+    )
+
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000", "http://localhost:3001", "http://localhost:9002"],  # Frontend URLs
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Include new routers for AI functionality
+app.include_router(extraction_router)
+app.include_router(generation_router)
+app.include_router(models_router)
+app.include_router(cache_router)
+app.include_router(agents_router)
+
 # --- Utility Functions ---
 def update_metrics(processing_time: float, method: str, success: bool):
     with app_state["LOCK"]:
@@ -71,8 +116,8 @@ def update_metrics(processing_time: float, method: str, success: bool):
             metrics['failed_conversions'] += 1
 
 # --- API Endpoints ---
-@app.post("/process", response_model=schemas.ProcessResponse)
-async def process_json_data(fastapi_request: Request, request: schemas.ProcessRequest, background_tasks: BackgroundTasks):
+@app.post("/process", response_model=ProcessResponse)
+async def process_json_data(fastapi_request: Request, request: ProcessRequest, background_tasks: BackgroundTasks):
     start_time = time.time()
     processing_method = "direct"  # Default method
     
@@ -179,7 +224,7 @@ async def process_json_data(fastapi_request: Request, request: schemas.ProcessRe
                     processing_time = time.time() - start_time
                     update_metrics(processing_time, processing_method, True)
 
-                    return schemas.ProcessResponse(
+                    return ProcessResponse(
                         success=True, file_id=file_id, file_name=original_filename,
                         download_url=f"/download/{file_id}", ai_analysis=ai_response_content,
                         processing_method=processing_method, processing_time=processing_time,
@@ -214,7 +259,7 @@ async def process_json_data(fastapi_request: Request, request: schemas.ProcessRe
         processing_time = time.time() - start_time
         update_metrics(processing_time, processing_method, True)
 
-        return schemas.ProcessResponse(
+        return ProcessResponse(
             success=True, file_id=file_id, file_name=xlsx_filename,
             download_url=f"/download/{file_id}", processing_method=processing_method,
             processing_time=processing_time, data_size=len(request.json_data),
@@ -243,7 +288,7 @@ async def download_file(file_id: str):
     )
 
 
-@app.get("/metrics", response_model=schemas.SystemMetrics)
+@app.get("/metrics", response_model=SystemMetrics)
 async def get_system_metrics():
     with app_state["LOCK"]:
         metrics = app_state["METRICS"].copy()
@@ -251,7 +296,7 @@ async def get_system_metrics():
 
     success_rate = (metrics['successful_conversions'] / max(metrics['total_requests'], 1)) * 100
     
-    return schemas.SystemMetrics(
+    return SystemMetrics(
         total_requests=metrics['total_requests'],
         successful_conversions=metrics['successful_conversions'],
         ai_conversions=metrics['ai_conversions'],

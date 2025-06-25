@@ -46,5 +46,12 @@ export interface JobResult {
   };
   agnoProcessingCost?: number;
   status: 'success' | 'failed' | 'retrying';
+  // Add model information for accurate pricing
+  model?: string;
+  modelPricing?: {
+    inputPrice: number;
+    outputPrice: number;
+  };
+  calculatedCost?: number;
 }
 

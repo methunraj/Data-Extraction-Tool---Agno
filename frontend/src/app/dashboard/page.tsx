@@ -1,14 +1,16 @@
 'use client';
 
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Activity, Sigma, BarChart3, CheckCircle, AlertCircle, DollarSign, AlertTriangle, FileClock } from "lucide-react";
+import { Activity, Sigma, BarChart3, CheckCircle, AlertCircle, DollarSign, AlertTriangle, FileClock, Info } from "lucide-react";
 import { useJob } from "@/contexts/JobContext";
 import { useConfiguration } from "@/contexts/ConfigurationContext";
+import { useLLMConfig } from "@/contexts/LLMContext";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import type { JobResult } from "@/types";
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
+import { calculateTotalPricing, type PricingCalculation } from "@/utils/pricing";
 
 export default function DashboardPage() {
   const {
@@ -25,7 +27,7 @@ export default function DashboardPage() {
     cachePricing, // Get cache pricing configuration
   } = useJob();
   const { llmConfig } = useConfiguration();
-  const { pricePerMillionInputTokens, pricePerMillionOutputTokens } = llmConfig;
+  const { backendModels } = useLLMConfig();
   const { toast } = useToast();
 
   const successfulExtractionsCount = jobResults.filter(job => job.status === 'success').length;
@@ -76,10 +78,11 @@ export default function DashboardPage() {
     return sum + 0;
   }, 0);
 
-  // Calculate cost with cache savings included
+  // Calculate cost using proper per-model pricing
   let estimatedCost: number | null = null;
   let costDisplay: string;
-  let costCalculationMessage = "Based on current settings & usage";
+  let costCalculationMessage = "Based on model-specific pricing";
+  let pricingBreakdown: PricingCalculation | null = null;
   
   // Get cache-related values with defaults
   const cachingEnabled = useCaching || false;
@@ -215,44 +218,28 @@ export default function DashboardPage() {
   if (totalPromptTokens === 0 && totalCompletionTokens === 0 && jobResults.every(job => !job.totalTokens || job.totalTokens === 0)) {
     // No tokens used at all across all jobs
     costDisplay = "$0.0000";
-  } else if (pricePerMillionInputTokens !== undefined && pricePerMillionOutputTokens !== undefined) {
-    // If we have prices, calculate cost using available prompt and completion tokens
-    const rawCost = (totalPromptTokens / 1000000 * pricePerMillionInputTokens) +
-                   (totalCompletionTokens / 1000000 * pricePerMillionOutputTokens) +
-                   (totalThinkingTokens / 1000000 * pricePerMillionOutputTokens); // Thinking tokens use output token pricing
+  } else if (backendModels.length > 0) {
+    // Use per-model pricing calculation
+    pricingBreakdown = calculateTotalPricing(jobResults, backendModels);
     
-    // Include cache benefits if caching is enabled
-    if (cachingEnabled && cacheNetSavings !== 0) {
-      estimatedCost = rawCost - cacheNetSavings; // Subtract net savings (which accounts for storage costs)
-      costDisplay = `$${estimatedCost.toFixed(4)}`;
-      costCalculationMessage = "Includes cache savings & storage costs";
+    if (pricingBreakdown.totalCost > 0) {
+      // Include cache benefits if caching is enabled
+      if (cachingEnabled && cacheNetSavings !== 0) {
+        estimatedCost = pricingBreakdown.totalCost - cacheNetSavings;
+        costDisplay = `$${estimatedCost.toFixed(4)}`;
+        costCalculationMessage = "Per-model pricing with cache savings";
+      } else {
+        estimatedCost = pricingBreakdown.totalCost;
+        costDisplay = `$${estimatedCost.toFixed(4)}`;
+        costCalculationMessage = `Based on ${pricingBreakdown.breakdown.length} model(s)`;
+      }
     } else {
-      estimatedCost = rawCost;
-      costDisplay = `$${estimatedCost.toFixed(4)}`;
+      costDisplay = "$0.0000";
+      costCalculationMessage = "No billable usage found";
     }
-
-    // Check if breakdown was missing for any job that did report some total tokens
-    const someJobsMissingBreakdown = jobResults.some(job =>
-        (job.totalTokens && job.totalTokens > 0) &&
-        (job.promptTokens === undefined || job.completionTokens === undefined)
-    );
-
-    if (someJobsMissingBreakdown && (totalPromptTokens === 0 && totalCompletionTokens === 0 && displayableGrandTotalTokens > 0)) {
-         costCalculationMessage = "Input/output token breakdown missing for all jobs with tokens. Cost cannot be accurately calculated unless input/output prices are identical and total tokens are available.";
-         if (pricePerMillionInputTokens === pricePerMillionOutputTokens && displayableGrandTotalTokens > 0) {
-            estimatedCost = (displayableGrandTotalTokens / 1000000 * pricePerMillionInputTokens);
-            costDisplay = `$${estimatedCost.toFixed(4)}`;
-            costCalculationMessage = "Est. using total tokens (input/output prices are identical; breakdown unavailable)";
-         } else if (displayableGrandTotalTokens > 0) {
-            costDisplay = "N/A";
-         }
-    } else if (someJobsMissingBreakdown) {
-        costCalculationMessage = "Input/output token breakdown missing for some jobs; cost is based on available data.";
-    }
-
   } else {
-    costDisplay = "Not configured";
-    costCalculationMessage = "Configure pricing in LLM settings";
+    costDisplay = "Loading...";
+    costCalculationMessage = "Loading model pricing";
   }
 
   // For displaying token counts:
@@ -492,6 +479,26 @@ export default function DashboardPage() {
                   <p className="text-sm text-muted-foreground">{costCalculationMessage}</p>
                 </div>
               </div>
+              
+              {pricingBreakdown && pricingBreakdown.breakdown.length > 1 && (
+                <div className="mt-4 pt-4 border-t border-border/40">
+                  <h4 className="text-sm font-medium text-foreground mb-3">Cost Breakdown by Model</h4>
+                  <div className="space-y-2">
+                    {pricingBreakdown.breakdown.map((model, index) => (
+                      <div key={model.modelId} className="flex items-center justify-between text-sm">
+                        <div>
+                          <span className="font-medium">{backendModels.find(m => m.id === model.modelId)?.displayName || model.modelId}</span>
+                          <div className="text-xs text-muted-foreground">
+                            {model.inputTokens.toLocaleString()} in • {model.outputTokens.toLocaleString()} out
+                            {model.thinkingTokens > 0 && ` • ${model.thinkingTokens.toLocaleString()} thinking`}
+                          </div>
+                        </div>
+                        <span className="font-medium">${model.cost.toFixed(4)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
               
               {cachingEnabled && cacheHits > 0 && (
                 <div className="mt-4 pt-4 border-t border-border/40">

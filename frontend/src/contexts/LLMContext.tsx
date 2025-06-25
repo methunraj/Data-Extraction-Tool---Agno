@@ -1,6 +1,7 @@
 'use client';
 import type { Dispatch, SetStateAction } from 'react';
 import { createContext, useContext, useState, useMemo, useEffect, useCallback } from 'react';
+import { backendAIService, type ModelInfo } from '@/services/backend-api';
 
 // Helper to get initial numeric thinking budget from environment variable or a default
 const getInitialNumericThinkingBudgetForModel = (modelId?: string): number | undefined => {
@@ -59,6 +60,16 @@ interface LLMContextType {
   setPricePerMillionOutputTokens: (newPrice: number | undefined, forWhichModel: string) => void;
   temperature: number;
   setTemperature: (newTemperature: number, forWhichModel: string) => void;
+  
+  // New fields for backend integration
+  extractionModel: string;
+  setExtractionModel: (model: string) => void;
+  agnoModel: string;
+  setAgnoModel: (model: string) => void;
+  backendModels: ModelInfo[];
+  refreshModels: () => Promise<void>;
+  isLoadingModels: boolean;
+  modelLoadError?: string;
 }
 
 const defaultAvailableModels: Record<string, string[]> = {
@@ -82,7 +93,71 @@ export function LLMProvider({ children }: { children: React.ReactNode }) {
   const [pricePerMillionInputTokens, _setInternalPricePerMillionInputTokens] = useState<number | undefined>(undefined);
   const [pricePerMillionOutputTokens, _setInternalPricePerMillionOutputTokens] = useState<number | undefined>(undefined);
   const [temperature, _setInternalTemperature] = useState<number>(0.3);
+  
+  // New backend-related state
+  const [extractionModel, _setInternalExtractionModel] = useState('');
+  const [agnoModel, _setInternalAgnoModel] = useState('');
+  const [backendModels, setBackendModels] = useState<ModelInfo[]>([]);
+  const [isLoadingModels, setIsLoadingModels] = useState(false);
+  const [modelLoadError, setModelLoadError] = useState<string | undefined>();
+  const [availableModels, setAvailableModels] = useState<Record<string, string[]>>(defaultAvailableModels);
 
+
+  // Function to refresh models from backend
+  const refreshModels = useCallback(async () => {
+    setIsLoadingModels(true);
+    setModelLoadError(undefined);
+    
+    try {
+      const models = await backendAIService.getModels();
+      setBackendModels(models);
+      
+      // Update available models based on backend data
+      const modelsByProvider: Record<string, string[]> = {
+        googleAI: models
+          .filter(m => m.provider === 'googleAI')
+          .map(m => m.id)
+      };
+      
+      setAvailableModels(modelsByProvider);
+      
+      // Auto-select extraction and agno models if not set
+      const extractionModels = models.filter(m => m.supportedIn.includes('extraction'));
+      const agnoModels = models.filter(m => m.supportedIn.includes('agno'));
+      
+      if (!extractionModel && extractionModels.length > 0) {
+        const savedExtractionModel = localStorage.getItem('intelliextract_extractionModel') || extractionModels[0].id;
+        _setInternalExtractionModel(savedExtractionModel);
+      }
+      
+      if (!agnoModel && agnoModels.length > 0) {
+        const savedAgnoModel = localStorage.getItem('intelliextract_agnoModel') || agnoModels[0].id;
+        _setInternalAgnoModel(savedAgnoModel);
+      }
+      
+      // Update pricing for current model if available from backend
+      if (model) {
+        const modelInfo = models.find(m => m.id === model);
+        if (modelInfo && modelInfo.pricing) {
+          const inputPrice = typeof modelInfo.pricing.input === 'number' 
+            ? modelInfo.pricing.input 
+            : modelInfo.pricing.input.default;
+          const outputPrice = typeof modelInfo.pricing.output === 'number'
+            ? modelInfo.pricing.output
+            : modelInfo.pricing.output.default;
+            
+          _setInternalPricePerMillionInputTokens(inputPrice);
+          _setInternalPricePerMillionOutputTokens(outputPrice);
+        }
+      }
+    } catch (error) {
+      console.error('Failed to load models from backend:', error);
+      setModelLoadError(error instanceof Error ? error.message : 'Failed to load models');
+      // Keep using default models on error
+    } finally {
+      setIsLoadingModels(false);
+    }
+  }, [model, extractionModel, agnoModel]);
 
   // Effect for initializing the provider and API key from localStorage ONCE on mount
   useEffect(() => {
@@ -93,9 +168,17 @@ export function LLMProvider({ children }: { children: React.ReactNode }) {
       
       const lastActiveModel = localStorage.getItem('intelliextract_model_googleAI') || defaultAvailableModels['googleAI']?.[0] || '';
       _setInternalModel(lastActiveModel);
-      // isKeyValid might also be stored/loaded if desired
+      
+      // Load extraction and agno models
+      const savedExtractionModel = localStorage.getItem('intelliextract_extractionModel') || '';
+      const savedAgnoModel = localStorage.getItem('intelliextract_agnoModel') || '';
+      _setInternalExtractionModel(savedExtractionModel);
+      _setInternalAgnoModel(savedAgnoModel);
+      
+      // Load models from backend
+      refreshModels();
     }
-  }, []);
+  }, [refreshModels]);
 
   // Effect for loading model-specific settings (prices, temp, budget) when 'model' state changes
   useEffect(() => {
@@ -193,26 +276,71 @@ export function LLMProvider({ children }: { children: React.ReactNode }) {
       _setInternalTemperature(newTemperature);
     }
   }, [model]);
+  
+  const setExtractionModel = useCallback((newModel: string) => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('intelliextract_extractionModel', newModel);
+    }
+    _setInternalExtractionModel(newModel);
+    
+    // Update pricing from backend model info
+    const modelInfo = backendModels.find(m => m.id === newModel);
+    if (modelInfo && modelInfo.pricing) {
+      const inputPrice = typeof modelInfo.pricing.input === 'number' 
+        ? modelInfo.pricing.input 
+        : modelInfo.pricing.input.default;
+      const outputPrice = typeof modelInfo.pricing.output === 'number'
+        ? modelInfo.pricing.output
+        : modelInfo.pricing.output.default;
+      
+      // Store these prices for the extraction model
+      if (typeof window !== 'undefined') {
+        localStorage.setItem(`intelliextract_priceInput_googleAI_${newModel}`, String(inputPrice));
+        localStorage.setItem(`intelliextract_priceOutput_googleAI_${newModel}`, String(outputPrice));
+      }
+    }
+  }, [backendModels]);
+  
+  const setAgnoModel = useCallback((newModel: string) => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('intelliextract_agnoModel', newModel);
+    }
+    _setInternalAgnoModel(newModel);
+  }, []);
 
   const value = useMemo(() => ({
     provider: _provider, setProvider,
     apiKey, setApiKey,
     model, setModel,
     isKeyValid, setIsKeyValid,
-    availableModels: defaultAvailableModels,
+    availableModels,
     numericThinkingBudget, setNumericThinkingBudget,
     pricePerMillionInputTokens, setPricePerMillionInputTokens,
     pricePerMillionOutputTokens, setPricePerMillionOutputTokens,
     temperature, setTemperature,
+    // New backend fields
+    extractionModel, setExtractionModel,
+    agnoModel, setAgnoModel,
+    backendModels,
+    refreshModels,
+    isLoadingModels,
+    modelLoadError,
   }), [
     _provider, setProvider,
     apiKey, setApiKey,
     model, setModel,
     isKeyValid, // setIsKeyValid is from useState, stable
+    availableModels,
     numericThinkingBudget, setNumericThinkingBudget,
     pricePerMillionInputTokens, setPricePerMillionInputTokens,
     pricePerMillionOutputTokens, setPricePerMillionOutputTokens,
     temperature, setTemperature,
+    extractionModel, setExtractionModel,
+    agnoModel, setAgnoModel,
+    backendModels,
+    refreshModels,
+    isLoadingModels,
+    modelLoadError,
   ]);
 
   return <LLMContext.Provider value={value}>{children}</LLMContext.Provider>;

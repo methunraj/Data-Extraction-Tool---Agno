@@ -54,3 +54,9 @@ ipython>=8.0.0  # For interactive debugging
 
 # Additional testing utilities
 requests>=2.31.0  # For the test.py script
+
+# File watching for model configuration updates
+watchdog>=3.0.0
+
+# Token counting
+tiktoken>=0.5.0

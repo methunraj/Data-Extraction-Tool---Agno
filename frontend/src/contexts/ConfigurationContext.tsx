@@ -3,6 +3,7 @@ import type { Dispatch, SetStateAction } from 'react';
 import { createContext, useContext, useState, useMemo, useEffect, useCallback } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import type { Example } from '@/types';
+export type { Example };
 
 // Types for the unified configuration
 export interface SavedSchema {
@@ -529,7 +530,7 @@ const defaultSchema = JSON.stringify(
   2
 );
 
-const defaultSystemPrompt = `You are a precise data extraction assistant specialized in analyzing various document types including invoices, financial reports, articles, emails, contracts, resumes, technical documents, and more.
+export const defaultSystemPrompt = `You are a precise data extraction assistant specialized in analyzing various document types including invoices, financial reports, articles, emails, contracts, resumes, technical documents, and more.
 
 Your task is to extract structured information from documents according to the provided schema. Return the data in the requested format.
 
@@ -549,7 +550,7 @@ Guidelines for extraction:
 
 Focus solely on extracting data as per the schema. Do not add any conversational text or explanations outside of the JSON output.`;
 
-const defaultUserPromptTemplate = `Based on the provided document content and the JSON schema, please extract the relevant information in a highly structured format.
+export const defaultUserPromptTemplate = `Based on the provided document content and the JSON schema, please extract the relevant information in a highly structured format.
 
 Document Content will be provided by the system (using {{document_content_text}} or {{media url=document_media_url}}).
 JSON Schema will be provided by the system (using {{json_schema_text}}).
@@ -1096,8 +1097,8 @@ www.company.com`,
 
   const validateLLMConnection = useCallback(async (): Promise<boolean> => {
     // Simple validation - in a real app you'd test the actual connection
-    const isValid = llmConfig.model && (llmConfig.apiKey.length > 15 || llmConfig.provider === 'googleAI');
-    setLLMConfig(prev => ({ ...prev, isValid }));
+    const isValid = !!(llmConfig.model && (llmConfig.apiKey.length > 15 || llmConfig.provider === 'googleAI'));
+    setLLMConfig(prev => ({ ...prev, isValid: isValid as boolean | null }));
     return isValid;
   }, [llmConfig.model, llmConfig.apiKey, llmConfig.provider]);
 
@@ -1109,22 +1110,29 @@ www.company.com`,
 
     setIsGenerating(true);
     try {
-      // Use the actual AI generation flow
-      const { generateUnifiedConfiguration } = await import('@/ai/flows/unified-generation-flow');
+      // Use the backend API for generation
+      const { backendAIService } = await import('@/services/backend-api');
       
       const generationInput = {
         userIntent: input.userIntent,
         exampleCount: input.exampleCount,
-        llmProvider: llmConfig.provider,
         modelName: llmConfig.model,
         temperature: llmConfig.temperature,
+        includeExamples: true,
+        includeReasoning: true,
       };
       
-      const result = await generateUnifiedConfiguration(generationInput);
+      const result = await backendAIService.generateUnifiedConfig(generationInput, llmConfig.apiKey);
+
+      // Convert the examples from the backend format to the frontend format
+      const backendExamples: Example[] = result.examples.map(ex => ({
+        input: ex.input,
+        output: typeof ex.output === 'string' ? ex.output : JSON.stringify(ex.output, null, 2)
+      }));
 
       // Create a comprehensive set of examples by combining AI-generated examples
       // with our predefined examples for various document types
-      const combinedExamples = [...result.examples];
+      const combinedExamples = [...backendExamples];
       
       // Add predefined examples if requested or if AI didn't generate enough examples
       if (input.includeComprehensiveExamples || combinedExamples.length < 2) {
@@ -1155,7 +1163,7 @@ www.company.com`,
         userPromptTemplate: result.userPromptTemplate,
         examples: combinedExamples,
         reasoning: result.reasoning,
-        confidence: result.confidence,
+        confidence: 0.85, // Default confidence since backend doesn't return it
         timestamp: Date.now(),
       };
 
@@ -1364,125 +1372,3 @@ export function useConfiguration() {
   return context;
 }
 
-// Mock generation functions (to be replaced with actual AI generation)
-function generateMockSchema(input: GenerationInput): string {
-  const baseSchema = {
-    $schema: 'http://json-schema.org/draft-07/schema#',
-    title: `${input.domain.charAt(0).toUpperCase() + input.domain.slice(1)}Data`,
-    description: `Schema for extracting ${input.domain} data`,
-    type: 'object',
-    properties: {},
-    required: [] as string[]
-  };
-
-  // Add domain-specific properties
-  switch (input.domain) {
-    case 'invoice':
-      baseSchema.properties = {
-        invoiceNumber: { type: 'string', description: 'Invoice number' },
-        date: { type: 'string', format: 'date', description: 'Invoice date' },
-        customerName: { type: 'string', description: 'Customer name' },
-        totalAmount: { type: 'number', description: 'Total amount' },
-        items: {
-          type: 'array',
-          items: {
-            type: 'object',
-            properties: {
-              description: { type: 'string' },
-              quantity: { type: 'number' },
-              price: { type: 'number' }
-            }
-          }
-        }
-      };
-      baseSchema.required = ['invoiceNumber', 'totalAmount'];
-      break;
-    case 'resume':
-      baseSchema.properties = {
-        name: { type: 'string', description: 'Full name' },
-        email: { type: 'string', format: 'email', description: 'Email address' },
-        phone: { type: 'string', description: 'Phone number' },
-        experience: {
-          type: 'array',
-          items: {
-            type: 'object',
-            properties: {
-              company: { type: 'string' },
-              position: { type: 'string' },
-              duration: { type: 'string' }
-            }
-          }
-        },
-        skills: { type: 'array', items: { type: 'string' } }
-      };
-      baseSchema.required = ['name', 'email'];
-      break;
-    default:
-      baseSchema.properties = {
-        title: { type: 'string', description: 'Document title' },
-        content: { type: 'string', description: 'Main content' },
-        metadata: { type: 'object', description: 'Additional metadata' }
-      };
-      baseSchema.required = ['title'];
-  }
-
-  return JSON.stringify(baseSchema, null, 2);
-}
-
-function generateMockSystemPrompt(input: GenerationInput): string {
-  return `You are an expert data extraction assistant specialized in processing ${input.domain} documents. 
-Your task is to carefully analyze documents and extract structured information according to the provided JSON schema.
-
-Key guidelines:
-- Extract information accurately and completely
-- Follow the schema structure exactly
-- Use null for missing information unless schema specifies defaults
-- Maintain data type consistency
-- Focus on precision and attention to detail
-
-Return the extracted data in the requested format.`;
-}
-
-function generateMockUserPrompt(input: GenerationInput): string {
-  return `Please extract ${input.domain} information from the provided document according to the JSON schema.
-
-Document: {{#if document_content_text}}{{document_content_text}}{{else}}{{media url=document_media_url}}{{/if}}
-
-Schema: {{json_schema_text}}
-
-{{#if examples_list.length}}
-Examples:
-{{#each examples_list}}
-Input: {{{this.input}}}
-Output: {{{this.output}}}
-{{/each}}
-{{/if}}
-
-Extract the information and return the result in the requested format.`;
-}
-
-function generateMockExamples(input: GenerationInput): Example[] {
-  switch (input.domain) {
-    case 'invoice':
-      return [
-        {
-          input: 'Invoice #INV-001 dated 2024-01-15 for Acme Corp, Total: $1,250.00',
-          output: '{"invoiceNumber": "INV-001", "date": "2024-01-15", "customerName": "Acme Corp", "totalAmount": 1250.00}'
-        }
-      ];
-    case 'resume':
-      return [
-        {
-          input: 'John Smith, john@email.com, Software Engineer at Tech Corp (2020-2023)',
-          output: '{"name": "John Smith", "email": "john@email.com", "experience": [{"company": "Tech Corp", "position": "Software Engineer", "duration": "2020-2023"}]}'
-        }
-      ];
-    default:
-      return [
-        {
-          input: 'Sample document with title "Project Report" containing analysis data',
-          output: '{"title": "Project Report", "content": "analysis data"}'
-        }
-      ];
-  }
-}

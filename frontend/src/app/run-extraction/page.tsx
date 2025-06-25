@@ -14,6 +14,7 @@ import { PlayCircle, Settings2, BrainCircuit, Loader2, AlertCircle, CheckCircle,
 import { useConfiguration } from "@/contexts/ConfigurationContext";
 import { useFiles } from "@/contexts/FileContext";
 import { useJob, type ThinkingDetailLevel } from "@/contexts/JobContext";
+import { useLLMConfig } from "@/contexts/LLMContext";
 import { useToast } from "@/hooks/use-toast";
 import type { JobResult } from "@/types";
 import { Badge } from "@/components/ui/badge";
@@ -144,6 +145,7 @@ export default function RunExtractionPage() {
     llmConfig
   } = useConfiguration();
   const { provider, model, apiKey, thinkingBudget: numericThinkingBudget, temperature } = llmConfig;
+  const { extractionModel, agnoModel } = useLLMConfig();
   const { files } = useFiles();
   const { 
     jobQueue, jobResults, 
@@ -193,12 +195,21 @@ export default function RunExtractionPage() {
       toast({ title: "Prompts Missing", description: "Please configure prompts in Prompt Configuration.", variant: "destructive" });
       return;
     }
+    if (!extractionModel) {
+      toast({ title: "Extraction Model Missing", description: "Please select an extraction model in LLM Configuration.", variant: "destructive" });
+      return;
+    }
+    if (useAgnoProcessing && !agnoModel) {
+      toast({ title: "Agno Model Missing", description: "Please select an Agno model in LLM Configuration.", variant: "destructive" });
+      return;
+    }
     
     // Log token metadata to console for debugging
     console.log("\n=== EXTRACTION JOB STARTED ===");
     console.log("Files to process:", files.length);
     console.log("Provider:", provider);
-    console.log("Model:", model);
+    console.log("Extraction Model:", extractionModel);
+    console.log("Agno Model:", agnoModel);
     console.log("Max Retries:", maxRetries);
     console.log("Thinking Enabled:", thinkingEnabled);
     console.log("Thinking Detail Level:", thinkingDetailLevel);
@@ -226,7 +237,8 @@ export default function RunExtractionPage() {
       userPromptTemplate, 
       examples, 
       provider, 
-      model, 
+      extractionModel,
+      agnoModel, 
       apiKey,
       numericThinkingBudget,
       temperature,
@@ -234,7 +246,7 @@ export default function RunExtractionPage() {
     );
   };
 
-  const isRunDisabled = isProcessingQueue || files.length === 0 || !schemaJson || !systemPrompt || !userPromptTemplate || (!apiKey && provider !== 'googleAI');
+  const isRunDisabled = isProcessingQueue || files.length === 0 || !schemaJson || !systemPrompt || !userPromptTemplate || (!apiKey && provider !== 'googleAI') || !extractionModel || (useAgnoProcessing && !agnoModel);
 
   const handleDownloadXlsx = () => {
     if (jobResults.length === 0) {
@@ -298,12 +310,17 @@ export default function RunExtractionPage() {
                 <p><strong className="text-muted-foreground">Files:</strong> {files.length > 0 ? <Badge variant="secondary">{files.length} selected</Badge> : <Badge variant="outline">None selected</Badge>}</p>
               </div>
               <div>
-                <p><strong className="text-muted-foreground">LLM:</strong>
-                  {provider && model ? <Badge variant="secondary">{provider} / {model}</Badge> : <Badge variant="destructive">Not Set</Badge>}
-                  {apiKey || provider === 'googleAI' ? <Badge variant="secondary" className="ml-1">Key OK</Badge> : <Badge variant="destructive" className="ml-1">No API Key</Badge>}
+                <p><strong className="text-muted-foreground">Extraction Model:</strong>
+                  {extractionModel ? <Badge variant="secondary">{extractionModel}</Badge> : <Badge variant="destructive">Not Set</Badge>}
+                </p>
+                <p><strong className="text-muted-foreground">Agno Model:</strong>
+                  {agnoModel ? <Badge variant="secondary">{agnoModel}</Badge> : <Badge variant="outline">Not Set</Badge>}
+                </p>
+                <p><strong className="text-muted-foreground">API Key:</strong>
+                  {apiKey || provider === 'googleAI' ? <Badge variant="secondary">OK</Badge> : <Badge variant="destructive">Missing</Badge>}
                 </p>
                 {provider === 'googleAI' && numericThinkingBudget !== undefined && (
-                  <p><strong className="text-muted-foreground">Thinking Budget (Model):</strong> <Badge variant="outline">{numericThinkingBudget === 0 ? 'Off' : numericThinkingBudget}</Badge></p>
+                  <p><strong className="text-muted-foreground">Thinking Budget:</strong> <Badge variant="outline">{numericThinkingBudget === 0 ? 'Off' : numericThinkingBudget}</Badge></p>
                 )}
                 <p><strong className="text-muted-foreground">Temperature:</strong> <Badge variant="outline">{temperature.toFixed(2)}</Badge></p>
               </div>

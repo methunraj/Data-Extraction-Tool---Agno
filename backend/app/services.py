@@ -23,10 +23,31 @@ from agno.models.google import Gemini
 from agno.storage.sqlite import SqliteStorage
 from agno.tools.python import PythonTools
 from .core.config import settings
+from .services.model_service import get_model_service
+from .agents import create_agent
 
 logger = logging.getLogger(__name__)
 
-OPTIMAL_MODEL = "gemini-2.0-flash"
+# Get model service for dynamic model selection
+model_service = get_model_service()
+
+def get_agno_model() -> str:
+    """Get the configured model for Agno processing."""
+    # Try to get a model that supports 'agno' purpose
+    agno_models = model_service.get_models_for_purpose("agno")
+    if agno_models:
+        # Prefer 2.0-flash models for speed, fall back to 2.5-flash for compatibility
+        for model in agno_models:
+            if "2.0-flash" in model["id"]:
+                return model["id"]
+        for model in agno_models:
+            if "2.5-flash" in model["id"]:
+                return model["id"]
+        # Return first available agno model
+        return agno_models[0]["id"]
+    
+    # Fallback to default if no agno models found
+    return settings.DEFAULT_AI_MODEL
 
 # Set up Agno monitoring environment variables if configured
 if settings.AGNO_API_KEY:
@@ -40,50 +61,43 @@ if settings.AGNO_DEBUG:
 AGENT_POOL: Dict[str, Agent] = {}
 MAX_POOL_SIZE = settings.MAX_POOL_SIZE  # Reasonable limit for different model types
 
-
-def create_search_agent() -> Agent:
-    """Creates a search-only agent for currency conversion and fact-checking.
+def get_agent_by_key(agent_type: str, **kwargs) -> Agent:
+    """Get or create an agent from the pool based on type and current model configuration.
     
-    This agent has native search and grounding enabled but no external tools.
+    Args:
+        agent_type: Type of agent ('search', 'strategist', 'qa', 'codegen')
+        **kwargs: Additional arguments for agent creation (e.g., temp_dir for codegen)
+    
+    Returns:
+        Agent instance from pool or newly created
     """
-    if not settings.GOOGLE_API_KEY:
-        raise ValueError("GOOGLE_API_KEY is not set in the environment.")
+    # Get current model to include in cache key
+    current_model = get_agno_model()
+    cache_key = f"{agent_type}_{current_model}"
     
-    # Simple instructions for search agent
-    search_instructions = [
-        "You are a financial data assistant specializing in currency conversion.",
-        "Your job is to find current exchange rates when asked.",
-        "Provide the exchange rates in a clear, structured format.",
-        "Always include the source and date of the rates.",
-    ]
+    # Check if agent exists in pool
+    if cache_key in AGENT_POOL:
+        logger.debug(f"Retrieved {agent_type} agent from pool for model {current_model}")
+        return AGENT_POOL[cache_key]
     
-    # Create unique storage for search agent
-    storage_dir = Path("storage")
-    storage_dir.mkdir(exist_ok=True)
-    unique_db_id = uuid.uuid4().hex[:8]
+    # Clean up pool if it's at capacity
+    if len(AGENT_POOL) >= MAX_POOL_SIZE:
+        # Remove oldest entries (simple FIFO for now)
+        oldest_key = next(iter(AGENT_POOL))
+        removed_agent = AGENT_POOL.pop(oldest_key)
+        logger.info(f"Removed agent {oldest_key} from pool to make space")
     
-    search_agent = Agent(
-        model=Gemini(
-            id=OPTIMAL_MODEL,
-            api_key=settings.GOOGLE_API_KEY,
-            search=True,      # Enable search
-            grounding=True,   # Enable grounding
-        ),
-        # No tools for search agent
-        tools=[],
-        storage=SqliteStorage(
-            table_name="search_agent_sessions",
-            db_file=str(storage_dir / f"search_agents_{unique_db_id}.db"),
-            auto_upgrade_schema=True
-        ),
-        instructions=search_instructions,
-        markdown=True,
-        show_tool_calls=True,
-        debug_mode=settings.AGNO_DEBUG,
-    )
+    # Create new agent using factory function
+    agent = create_agent(agent_type, **kwargs)
     
-    logger.info(f"Created search agent with model: {OPTIMAL_MODEL}")
-    return search_agent
+    # Add to pool
+    AGENT_POOL[cache_key] = agent
+    logger.info(f"Created and cached {agent_type} agent for model {current_model} (pool size: {len(AGENT_POOL)})")
+    
+    return agent
+
+
+# Agent creation functions removed - now using agent classes from .agents module
 
 
 class FinancialReportWorkflow(Workflow):
@@ -92,10 +106,11 @@ class FinancialReportWorkflow(Workflow):
     def __init__(self, temp_dir: str):
         super().__init__()
         self.temp_dir = temp_dir
-        self.strategist = create_strategist_agent()
-        self.search_agent = create_search_agent()
-        self.code_gen_agent = create_code_gen_agent(temp_dir)
-        self.qa_agent = create_quality_assurance_agent()
+        # Use pooled agents for better performance and dynamic model selection
+        self.strategist = get_agent_by_key("strategist")
+        self.search_agent = get_agent_by_key("search")
+        self.code_gen_agent = get_agent_by_key("codegen", temp_dir=temp_dir)
+        self.qa_agent = get_agent_by_key("qa")
 
     def run_workflow(self, json_data: Dict[str, Any], cancellation_event: asyncio.Event) -> Iterator[RunResponse]:
         """Executes the financial report generation workflow."""
@@ -148,255 +163,7 @@ class FinancialReportWorkflow(Workflow):
         self.session_state[cache_key] = final_excel_path
         yield RunResponse(run_id=self.run_id, content=final_excel_path)
 
-def create_strategist_agent() -> Agent:
-    """Creates a strategist agent to break down tasks."""
-    if not settings.GOOGLE_API_KEY:
-        raise ValueError("GOOGLE_API_KEY is not set in the environment.")
-
-    strategist_instructions = [
-        "You are a master strategist. Your role is to analyze a complex data-to-Excel task and break it down into a series of smaller, sequential, and parallelizable steps.",
-        "For each step, define the goal, the required inputs, the expected outputs, and the agent best suited for the job (e.g., Search Agent, Code Generation Agent).",
-        "Output the plan in a structured format (e.g., JSON or YAML) that can be parsed by an orchestrator.",
-        "Focus on creating a plan that is efficient, resilient to failures, and produces a high-quality final report."
-    ]
-
-    storage_dir = Path("storage")
-    storage_dir.mkdir(exist_ok=True)
-    unique_db_id = uuid.uuid4().hex[:8]
-
-    strategist_agent = Agent(
-        model=Gemini(
-            id=OPTIMAL_MODEL,
-            api_key=settings.GOOGLE_API_KEY,
-            search=False,  # No search needed for planning
-            grounding=False,
-        ),
-        tools=[],
-        storage=SqliteStorage(
-            table_name="strategist_agent_sessions",
-            db_file=str(storage_dir / f"strategist_agents_{unique_db_id}.db"),
-            auto_upgrade_schema=True
-        ),
-        instructions=strategist_instructions,
-        markdown=True,
-        show_tool_calls=True,
-        debug_mode=settings.AGNO_DEBUG,
-    )
-
-    return strategist_agent
-
-
-def create_quality_assurance_agent() -> Agent:
-    """Creates a quality assurance agent to verify the output."""
-    if not settings.GOOGLE_API_KEY:
-        raise ValueError("GOOGLE_API_KEY is not set in the environment.")
-
-    qa_instructions = [
-        "You are a meticulous Quality Assurance analyst. Your job is to inspect the generated Excel file and the Python code that created it.",
-        "Verify that all requirements from the initial plan have been met.",
-        "Check for data accuracy, completeness, and proper formatting in the Excel report.",
-        "Review the Python code for clarity, efficiency, and robustness.",
-        "If you find any issues, provide specific, actionable feedback to the Code Generation Agent for revision.",
-        "If the report is perfect, provide a confirmation of approval."
-    ]
-
-    storage_dir = Path("storage")
-    storage_dir.mkdir(exist_ok=True)
-    unique_db_id = uuid.uuid4().hex[:8]
-
-    qa_agent = Agent(
-        model=Gemini(
-            id=OPTIMAL_MODEL,
-            api_key=settings.GOOGLE_API_KEY,
-            search=False,
-            grounding=False,
-        ),
-        tools=[PythonTools(run_files=True)], # To inspect code and data
-        storage=SqliteStorage(
-            table_name="qa_agent_sessions",
-            db_file=str(storage_dir / f"qa_agents_{unique_db_id}.db"),
-            auto_upgrade_schema=True
-        ),
-        instructions=qa_instructions,
-        markdown=True,
-        show_tool_calls=True,
-        debug_mode=settings.AGNO_DEBUG,
-    )
-
-    return qa_agent
-
-
-def create_code_gen_agent(temp_dir: str, exchange_rates: Optional[Dict[str, float]] = None) -> Agent:
-    """Creates a Python execution agent for Excel generation.
-    
-    This agent has Python tools but no search capability.
-    """
-    if not settings.GOOGLE_API_KEY:
-        raise ValueError("GOOGLE_API_KEY is not set in the environment.")
-    
-    # Build exchange rate instructions if provided
-    exchange_rate_info = ""
-    if exchange_rates:
-        exchange_rate_info = "\n## EXCHANGE RATES PROVIDED:\n"
-        for currency, rate in exchange_rates.items():
-            exchange_rate_info += f"- 1 {currency} = {rate} USD\n"
-    
-    # Enhanced instructions for Code Generation agent
-    code_gen_instructions = [
-        "You are a senior financial analyst. Create a COMPREHENSIVE multi-sheet Excel report with structured data tables and meaningful narratives.",
-        "Save and run a Python script named 'excel_report_generator.py' and EXECUTE it immediately using your Python tools.",
-        exchange_rate_info,  # Include exchange rates if available
-        "",
-        f"## CRITICAL: FILE SAVING LOCATION",
-        f"- MANDATORY: Save Excel files to this EXACT path: {temp_dir}",
-        f"- Example: workbook.save(r'{temp_dir}\\report.xlsx')",
-        f"- Always use the full path when saving: os.path.join(r'{temp_dir}', 'filename.xlsx')",
-        f"- After saving, verify file exists with: os.path.exists(filepath)",
-        f"- Print the full file path after saving to confirm location",
-        "",
-        "## CODE EXECUTION REQUIREMENTS:",
-        "- You MUST execute the Python code using your save_to_file_and_run tool",
-        "- Don't just show code - RUN it to create the actual Excel file",
-        "- Use your Python tools to execute the script and generate the Excel file",
-        "- Verify the Excel file was created by checking if it exists",
-        "",
-        "## TECHNICAL REQUIREMENTS:",
-        "Import required libraries: os, openpyxl, openpyxl.styles, openpyxl.formatting",
-        "Keep code modular and well-documented",
-        "",
-        "## ERROR HANDLING - CRITICAL:",
-        "If any code execution fails, you MUST:",
-        "1. Read the error message carefully",
-        "2. Identify the root cause (e.g. data structure issues, missing imports)",
-        "3. Fix the code immediately", 
-        "4. Save and run the corrected code",
-        "5. Repeat until Excel file is successfully created with ALL enhancements",
-        "REMEMBER: You have run_files=True so you can execute Python files directly",
-        "DO NOT GIVE UP - keep trying until the Excel file exists with structured data and complete data analysis",
-        "",
-        "## QUALITY STANDARDS:",
-        "- Every sheet must have professional table formatting",
-        "- All numerical data must be properly formatted (currency, percentages)",
-        "- Tables must have proper headers and organized structure",
-        "- Include data validation and error checking tables",
-        "- Ensure all source data is captured and analyzed in tabular format",
-        "- Create a comprehensive table of contents on the first sheet"
-    ]
-    
-    # Expected output format
-    expected_output = """
-# Comprehensive Financial Analysis Report
-
-## Executive Summary
-- 3-5 key findings from the data analysis
-- Overall financial health assessment
-- Critical insights and recommendations
-
-## Data Processing Overview
-- Complete data inventory (every field processed)
-- Currency conversion details with current rates
-- Data validation and quality checks performed
-- File generation status with enhancement details
-
-## Structured Data Elements Created
-- Tables generated (types, purpose, key insights)
-- Table formatting applied (colors, styling details)
-- Conditional formatting rules implemented
-- Dashboard tables and KPIs highlighted
-
-## Analytical Insights
-- Trend analysis and patterns identified in tabular format
-- Performance metrics and benchmarks tables
-- Risk factors and opportunities summary
-- Comparative analysis tables across segments/regions
-
-## Technical Implementation
-- Script execution results and any challenges overcome
-- Libraries used and formatting techniques applied
-- File locations and sheet organization
-- Quality assurance measures taken
-
-## Narrative Analysis
-- Story told by the structured data
-- Strategic implications and recommendations
-- Areas requiring attention or further investigation
-- Performance highlights and concerns
-
-## Final Deliverable
-- Complete Excel file path with all structured data
-- Sheet-by-sheet summary of contents
-- Total data points processed and organized
-- Completeness verification (no data left behind)""".strip()
-    
-    # Create unique storage for Python agent
-    storage_dir = Path("storage")
-    storage_dir.mkdir(exist_ok=True)
-    unique_db_id = uuid.uuid4().hex[:8]
-    db_path = storage_dir / f"python_agents_{unique_db_id}.db"
-    
-    # Ensure storage directory has write permissions
-    storage_dir.chmod(0o755)
-    
-    agent_storage = SqliteStorage(
-        table_name="python_agent_sessions",
-        db_file=str(db_path),
-        auto_upgrade_schema=True
-    )
-    
-    # Ensure database file has write permissions
-    if db_path.exists():
-        db_path.chmod(0o644)
-    
-    # Create Python execution agent
-    python_agent = Agent(
-        model=Gemini(
-            id=OPTIMAL_MODEL,
-            api_key=settings.GOOGLE_API_KEY,
-            # NO search or grounding - just use the model
-        ),
-        tools=[
-            PythonTools(
-                # Core execution settings
-                run_code=True, 
-                pip_install=True, 
-                save_and_run=True, 
-                read_files=True,
-                list_files=True,
-                run_files=True,
-                
-                # Directory configuration
-                base_dir=Path(temp_dir).absolute(),
-                
-                # Performance optimizations
-                safe_globals=None,
-                safe_locals=None,
-            ),
-        ],
-        storage=agent_storage,
-        add_history_to_messages=True,
-        num_history_runs=3,
-        reasoning=False,
-        show_tool_calls=True,
-        markdown=True,
-        add_datetime_to_instructions=True,
-        tool_call_limit=20,
-        instructions=code_gen_instructions,
-        exponential_backoff=True,
-        retries=5,
-        debug_mode=settings.AGNO_DEBUG,
-        monitoring=settings.AGNO_MONITOR,
-    )
-    
-    return python_agent
-
-
-def create_agno_agent(temp_dir: str, enable_caching: bool = True) -> Agent:
-    """DEPRECATED: Use create_search_agent and create_python_agent instead.
-    
-    This function is kept for backward compatibility but will create a Python-only agent.
-    """
-    logger.warning("create_agno_agent is deprecated. Use create_search_agent and create_python_agent instead.")
-    return create_code_gen_agent(temp_dir)
+# All agent creation functions have been moved to /app/agents/ module
 
 
 async def direct_json_to_excel_async(json_data: str, file_name: str, chunk_size: int, temp_dir: str) -> Tuple[str, str, str]:
@@ -889,6 +656,25 @@ def cleanup_agent_pool():
     global AGENT_POOL
     logger.info(f"Cleaning up agent pool with {len(AGENT_POOL)} agents")
     AGENT_POOL.clear()
+
+def refresh_agent_pool_for_model_change():
+    """Refresh agent pool when model configuration changes.
+    
+    This ensures agents use the new model configuration without requiring
+    a complete application restart.
+    """
+    old_pool_size = len(AGENT_POOL)
+    cleanup_agent_pool()
+    logger.info(f"Agent pool refreshed due to model configuration change (removed {old_pool_size} agents)")
+
+def get_agent_pool_status() -> Dict[str, Any]:
+    """Get current status of the agent pool."""
+    return {
+        "pool_size": len(AGENT_POOL),
+        "max_pool_size": MAX_POOL_SIZE,
+        "agents": list(AGENT_POOL.keys()),
+        "current_agno_model": get_agno_model()
+    }
 
 
 def cleanup_storage_files():
