@@ -1,161 +1,107 @@
-# Final App - AI Data Extraction Platform
+# Data Extraction Tool
 
-A full-stack application for AI-powered data extraction with Google Gemini models, featuring a Next.js frontend and FastAPI backend.
+This is a full-stack application for extracting data from various sources. The backend is built with Python and FastAPI, and the frontend is a Next.js application.
 
-## 🚀 Quick Start
+## Technologies Used
+
+### Backend
+
+- Python
+- FastAPI
+- Pandas
+- Agno
+- Pytest
+
+### Frontend
+
+- Next.js
+- React
+- TypeScript
+- Tailwind CSS
+- Genkit
+
+## Getting Started
 
 ### Prerequisites
 
-- **Python 3.8+** - Backend runtime
-- **Node.js 18+** - Frontend runtime  
-- **npm** - Package manager
+- Python 3.9+
+- Node.js 18+
 
-### One-Command Setup
+### Installation
 
-```bash
-./start.sh
-```
+1. **Clone the repository:**
 
-This script will:
-- Install all dependencies (Python & Node.js)
-- Create Python virtual environment
-- Start backend server on port 8000
-- Start frontend server on port 9002
+   ```bash
+   git clone https://github.com/your-username/Data-Extraction-Tool---Agno.git
+   ```
 
-### Manual Setup
+2. **Backend Setup:**
 
-If you prefer to set up manually:
+   ```bash
+   cd backend
+   pip install -r requirements.txt
+   ```
 
-#### Backend Setup
-```bash
-cd backend
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-python start_server.py
-```
+3. **Frontend Setup:**
 
-#### Frontend Setup
-```bash
-cd frontend
-npm install
-npm run dev
-```
+   ```bash
+   cd frontend
+   npm install
+   ```
 
-## 📍 Access Points
+### Running the Application
 
-- **Frontend (UI)**: http://localhost:9002
-- **Backend API**: http://localhost:8000
-- **API Documentation**: http://localhost:8000/docs
+1. **Start the backend server:**
 
-## ⚙️ Configuration
+   ```bash
+   ./start.sh
+   ```
 
-### Environment Variables
+2. **Start the frontend development server:**
 
-Create a `.env` file in the `backend` directory:
+   ```bash
+   cd frontend
+   npm run dev
+   ```
 
-```env
-GOOGLE_API_KEY=your_google_api_key_here
-```
+## Available Scripts
 
-### API Keys
+### Frontend
 
-1. Get a Google AI API key from [Google AI Studio](https://aistudio.google.com/app/apikey)
-2. Add it to your backend `.env` file
-3. Optionally configure it in the frontend UI (LLM Configuration page)
+- `npm run dev`: Starts the development server.
+- `npm run build`: Builds the application for production.
+- `npm run start`: Starts a production server.
+- `npm run lint`: Lints the code.
+- `npm run typecheck`: Type-checks the code.
 
-## 🔧 Available Models
-
-The platform supports these Google Gemini models:
-- `gemini-2.5-flash-preview-05-20` (Latest, fast)
-- `gemini-2.5-pro-preview-05-06` (Enhanced reasoning)  
-- `gemini-2.0-flash` (Next generation)
-- `gemini-2.0-flash-lite` (Cost efficient)
-
-Update models in: `frontend/src/contexts/LLMContext.tsx`
-
-## 📁 Project Structure
+## Project Structure
 
 ```
-Final App/
-├── backend/           # FastAPI backend
-│   ├── app/           # Application code
-│   ├── requirements.txt
-│   └── start_server.py
-├── frontend/          # Next.js frontend
-│   ├── src/           # Source code
-│   ├── package.json
-│   └── next.config.js
-├── start.sh           # One-command startup script
-└── README.md          # This file
+.
+├── backend
+│   ├── app
+│   ├── storage
+│   └── ...
+├── frontend
+│   ├── src
+│   └── ...
+├── .gitignore
+├── LICENSE
+├── README.md
+└── start.sh
 ```
 
-## 🛠️ Development
+## Application Flowchart
 
-### Backend Commands
-```bash
-cd backend
-source venv/bin/activate
-
-# Run tests
-pytest
-
-# Code formatting
-black .
-isort .
-
-# Type checking
-mypy .
-```
-
-### Frontend Commands
-```bash
-cd frontend
-
-# Development server
-npm run dev
-
-# Type checking
-npm run typecheck
-
-# Linting
-npm run lint
-
-# Build production
-npm run build
-```
-
-## 🔍 Troubleshooting
-
-### Port Conflicts
-- Backend uses port **8000**
-- Frontend uses port **9002** 
-- If ports are in use, stop other services or modify ports in configuration files
-
-### API Key Issues
-- Ensure `GOOGLE_API_KEY` is set in backend `.env` file
-- Check API key format and permissions
-- Verify quota limits in Google Cloud Console
-
-### Connection Issues
-- Confirm both services are running
-- Check firewall settings
-- Verify backend is accessible at http://localhost:8000
-
-### Python Virtual Environment
-```bash
-# If venv activation fails
-cd backend
-rm -rf venv
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-```
-
-### Node.js Dependencies
-```bash
-# If npm install fails
-cd frontend
-rm -rf node_modules package-lock.json
-npm install
+```mermaid
+graph TD
+    A[User] --> B{Frontend};
+    B --> C{Backend API};
+    C --> D[List Models];
+    C --> E[Generate Config];
+    C --> F[Extract Data];
+    E --> G[Generate Schema];
+    E --> H[Generate Prompts];
+    E --> I[Refine Config];
+    F --> J[Estimate Tokens];
 ```
