@@ -19,6 +19,7 @@ from . import services
 from .main_schemas import ProcessRequest, ProcessResponse, SystemMetrics
 from .core.config import settings
 from .routers import extraction_router, generation_router, models_router, cache_router, agents_router
+from .routers.monitoring import router as monitoring_router
 
 # --- Application State and Logging ---
 app_state = {}
@@ -97,6 +98,7 @@ app.include_router(generation_router)
 app.include_router(models_router)
 app.include_router(cache_router)
 app.include_router(agents_router)
+app.include_router(monitoring_router)
 
 # --- Utility Functions ---
 def update_metrics(processing_time: float, method: str, success: bool):

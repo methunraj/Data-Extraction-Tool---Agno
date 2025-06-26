@@ -43,6 +43,9 @@ class Settings(BaseSettings):
     MAX_POOL_SIZE: int = 10  # Maximum number of agents in pool
     AGENT_STORAGE_CLEANUP_HOURS: int = 24  # Clean up agent storage after 24 hours
     
+    # Directory Configuration
+    AGENT_TEMP_DIR: str = os.getenv("AGENT_TEMP_DIR", "")
+    
     @validator('GOOGLE_API_KEY')
     def validate_google_api_key(cls, v):
         if not v:

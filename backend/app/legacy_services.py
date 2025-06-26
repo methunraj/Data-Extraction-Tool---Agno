@@ -11,6 +11,7 @@ import asyncio
 import traceback
 from functools import lru_cache
 from typing import Dict, List, Tuple, Any, Optional, Iterator
+import tempfile
 
 # Set Matplotlib backend to a non-GUI backend to avoid threading issues
 import matplotlib
@@ -21,6 +22,8 @@ from agno.workflow import Workflow
 
 from .core.config import settings
 from .agents import create_agent
+from .agents.utils.directory_manager import AgentDirectoryManager
+from .agents.utils.execution_monitor import execution_monitor
 
 logger = logging.getLogger(__name__)
 
@@ -130,61 +133,67 @@ def get_agent_by_key(agent_type: str, **kwargs) -> Agent:
 class FinancialReportWorkflow(Workflow):
     """A stateful, deterministic workflow for generating financial reports."""
 
-    def __init__(self, temp_dir: str, model_id: Optional[str] = None):
+    def __init__(self, temp_dir: str = None, model_id: Optional[str] = None):
         super().__init__()
-        self.temp_dir = temp_dir
+        
+        # Use configured temp directory or create one
+        if temp_dir:
+            self.temp_dir = AgentDirectoryManager.ensure_directory_exists(temp_dir)
+        elif settings.AGENT_TEMP_DIR:
+            self.temp_dir = AgentDirectoryManager.ensure_directory_exists(settings.AGENT_TEMP_DIR)
+        else:
+            self.temp_dir = AgentDirectoryManager.get_safe_temp_dir()
+            
         self.model_id = model_id
         # Use pooled agents for better performance and dynamic model selection
         self.strategist = get_agent_by_key("strategist", model_id=model_id)
         self.search_agent = get_agent_by_key("search", model_id=model_id)
-        self.code_gen_agent = get_agent_by_key("codegen", temp_dir=temp_dir, model_id=model_id)
+        self.code_gen_agent = get_agent_by_key("codegen", temp_dir=self.temp_dir, model_id=model_id)
         self.qa_agent = get_agent_by_key("qa", model_id=model_id)
 
     def run_workflow(self, json_data: Dict[str, Any], cancellation_event: asyncio.Event) -> Iterator[RunResponse]:
         """Executes the financial report generation workflow."""
-        # Use a unique key for caching based on the JSON data content
-        cache_key = json.dumps(json_data, sort_keys=True)
-        if self.session_state.get(cache_key):
-            logger.info(f"Cache hit for the report.")
-            yield RunResponse(
-                run_id=self.run_id, content=self.session_state.get(cache_key)
-            )
-            return
+        # Start monitoring
+        execution_id = f"workflow_{self.run_id}_{int(time.time())}"
+        execution_monitor.start_execution(execution_id, "workflow", self.temp_dir)
+        
+        workflow_success = False
+        error_message = None
+        
+        try:
+            # Use a unique key for caching based on the JSON data content
+            cache_key = json.dumps(json_data, sort_keys=True)
+            if self.session_state.get(cache_key):
+                logger.info(f"Cache hit for the report.")
+                workflow_success = True
+                yield RunResponse(
+                    run_id=self.run_id, content=self.session_state.get(cache_key)
+                )
+                return
 
-        # 1. Strategist Agent
-        plan_prompt = f"Create a detailed execution plan to convert the following JSON data into a comprehensive Excel report:\n\n{json.dumps(json_data, indent=2)}"
-        yield from self.strategist.run(plan_prompt, stream=True)
-        plan = self.strategist.run_response.content
-        logger.info(f"Strategist Plan:\n{plan}")
+            # 1. Strategist Agent
+            plan_prompt = f"Create a detailed execution plan to convert the following JSON data into a comprehensive Excel report:\\n\\n{json.dumps(json_data, indent=2)}"
+            yield from self.strategist.run(plan_prompt, stream=True)
+            plan = self.strategist.run_response.content
+            logger.info(f"Strategist Plan:\\n{plan}")
 
-        if cancellation_event.is_set():
-            raise asyncio.CancelledError("Workflow cancelled by client request.")
+            if cancellation_event.is_set():
+                raise asyncio.CancelledError("Workflow cancelled by client request.")
 
-        # 2. Search Agent
-        currencies = extract_currencies_from_json(json_data)
-        if currencies:
-            search_prompt = f"Get the current USD exchange rates for the following currencies: {', '.join(currencies)}"
-            yield from self.search_agent.run(search_prompt, stream=True)
-            logger.info(f"Search Agent Response:\n{self.search_agent.run_response.content}")
-
-        if cancellation_event.is_set():
-            raise asyncio.CancelledError("Workflow cancelled by client request.")
-
-        # 3. Code Generation Agent
-        codegen_prompt = f"""Based on the following plan and JSON data, create and EXECUTE Python code to generate a comprehensive Excel report.
+            # 3. Code Generation Agent
+            codegen_prompt = f"""Based on the following plan and JSON data, create and EXECUTE Python code to generate a comprehensive Excel report.
 
 🎯 CRITICAL SUCCESS REQUIREMENTS:
 1. You MUST execute the code immediately using your Python tools
 2. Create Excel file in this EXACT directory: {self.temp_dir}
-3. Use filename: financial_report.xlsx (or backup names if needed)
-4. VERIFY file creation with mandatory checks (see instructions)
+3. Use the FileOperations class for reliable file handling
+4. VERIFY file creation with mandatory checks
 
-🔧 RELIABILITY STRATEGY:
-- Use MULTIPLE save attempts with different filenames
-- VERIFY file exists after each save attempt
-- Use shell commands for debugging if needed
-- Try alternative libraries (pandas, xlsxwriter) if openpyxl fails
-- Check file permissions and directory access before starting
+🔧 RELIABILITY STRATEGY (FileOperations class handles this):
+- Multiple save attempts with different filenames
+- Automatic fallback strategies
+- File verification and debugging
+- Error recovery and reporting
 
 📊 FORMATTING REQUIREMENTS:
 - Header row: Navy blue background (#1F4E79) with white text
@@ -194,18 +203,12 @@ class FinancialReportWorkflow(Workflow):
 - Professional borders and styling
 - Multiple sheets for different data categories
 
-✅ MANDATORY VERIFICATION STEPS:
-After creating the file, you MUST execute:
-1. print(f'File exists: {{os.path.exists(filepath)}}')
-2. print(f'File size: {{os.path.getsize(filepath) if os.path.exists(filepath) else 0}} bytes')
-3. print(f'Directory contents: {{os.listdir(os.path.dirname(filepath))}}')
-
-🔄 IF FILE CREATION FAILS:
-- Try different filenames (report.xlsx, backup_report.xlsx)
-- Use pandas.to_excel() as fallback
-- Debug with shell commands (ls, pwd, whoami)
-- Check permissions with shell touch command
-- DO NOT GIVE UP until file is created and verified
+✅ MANDATORY: Use FileOperations class for all file operations
+The agent instructions include a robust FileOperations class that handles:
+- Reliable file saving with multiple fallback strategies
+- File verification and debugging
+- Working directory management
+- Error reporting and recovery
 
 Plan:
 {plan}
@@ -213,14 +216,14 @@ Plan:
 JSON Data:
 {json.dumps(json_data, indent=2)}
 
-🚨 CRITICAL: The Excel file MUST be physically created and verified. Use all tools available!"""
-        yield from self.code_gen_agent.run(codegen_prompt, stream=True)
+🚨 CRITICAL: Use the FileOperations class provided in your instructions for reliable file handling!"""
+            yield from self.code_gen_agent.run(codegen_prompt, stream=True)
 
-        if cancellation_event.is_set():
-            raise asyncio.CancelledError("Workflow cancelled by client request.")
+            if cancellation_event.is_set():
+                raise asyncio.CancelledError("Workflow cancelled by client request.")
 
-        # 4. Quality Assurance Agent
-        qa_prompt = f"""Review the generated Excel file and code execution results. Provide constructive feedback.
+            # 4. Quality Assurance Agent
+            qa_prompt = f"""Review the generated Excel file and code execution results. Provide constructive feedback.
 
 REQUIREMENTS TO CHECK:
 1. ✅ Excel file exists at: {self.temp_dir}/financial_report.xlsx
@@ -239,81 +242,99 @@ Code Generation Results:
 {self.code_gen_agent.run_response.content}
 
 Focus on constructive feedback rather than blocking approval. If the file exists and contains data, consider it acceptable."""
-        yield from self.qa_agent.run(qa_prompt, stream=True)
-        logger.info(f"QA Agent Response:\n{self.qa_agent.run_response.content}")
+            yield from self.qa_agent.run(qa_prompt, stream=True)
+            logger.info(f"QA Agent Response:\\n{self.qa_agent.run_response.content}")
 
-        # Enhanced file detection with multiple patterns and wait logic
-        import time
-        
-        # Try multiple detection attempts with delays
-        detection_attempts = 5
-        wait_between_attempts = 2  # seconds
-        
-        output_files = []
-        for attempt in range(detection_attempts):
-            logger.info(f"File detection attempt {attempt + 1}/{detection_attempts}")
+            # Enhanced file detection with multiple patterns and wait logic
+            import time
             
-            # Try multiple file patterns
-            search_patterns = [
-                f"{self.temp_dir}/financial_report.xlsx",
-                f"{self.temp_dir}/report.xlsx", 
-                f"{self.temp_dir}/backup_report.xlsx",
-                f"{self.temp_dir}/*.xlsx",
-                f"{self.temp_dir}/**/*.xlsx"  # Recursive search
-            ]
+            # Try multiple detection attempts with delays
+            detection_attempts = 5
+            wait_between_attempts = 2  # seconds
             
-            for pattern in search_patterns:
-                files = glob.glob(pattern, recursive=True)
-                if files:
-                    # Filter out empty files
-                    valid_files = [f for f in files if os.path.exists(f) and os.path.getsize(f) > 0]
-                    if valid_files:
-                        output_files = valid_files
-                        logger.info(f"Found {len(valid_files)} valid Excel files: {valid_files}")
-                        break
-            
-            if output_files:
-                break
+            output_files = []
+            for attempt in range(detection_attempts):
+                logger.info(f"File detection attempt {attempt + 1}/{detection_attempts}")
                 
-            if attempt < detection_attempts - 1:
-                logger.info(f"No files found, waiting {wait_between_attempts}s before retry...")
-                time.sleep(wait_between_attempts)
-        
-        if not output_files:
-            # Enhanced error reporting
-            logger.error(f"CRITICAL: No Excel files found after {detection_attempts} attempts")
-            logger.error(f"Temp directory: {self.temp_dir}")
-            logger.error(f"Directory exists: {os.path.exists(self.temp_dir)}")
-            if os.path.exists(self.temp_dir):
+                # Try multiple file patterns
+                search_patterns = [
+                    f"{self.temp_dir}/financial_report.xlsx",
+                    f"{self.temp_dir}/report.xlsx", 
+                    f"{self.temp_dir}/backup_report.xlsx",
+                    f"{self.temp_dir}/*.xlsx",
+                    f"{self.temp_dir}/**/*.xlsx"  # Recursive search
+                ]
+                
+                for pattern in search_patterns:
+                    files = glob.glob(pattern, recursive=True)
+                    if files:
+                        # Filter out empty files
+                        valid_files = [f for f in files if os.path.exists(f) and os.path.getsize(f) > 0]
+                        if valid_files:
+                            output_files = valid_files
+                            logger.info(f"Found {len(valid_files)} valid Excel files: {valid_files}")
+                            break
+                
+                if output_files:
+                    break
+                    
+                if attempt < detection_attempts - 1:
+                    logger.info(f"No files found, waiting {wait_between_attempts}s before retry...")
+                    time.sleep(wait_between_attempts)
+            
+            if not output_files:
+                # Enhanced error reporting
+                logger.error(f"CRITICAL: No Excel files found after {detection_attempts} attempts")
+                logger.error(f"Temp directory: {self.temp_dir}")
+                logger.error(f"Directory exists: {os.path.exists(self.temp_dir)}")
+                if os.path.exists(self.temp_dir):
+                    try:
+                        contents = os.listdir(self.temp_dir)
+                        logger.error(f"Directory contents: {contents}")
+                        # Log file details
+                        for item in contents:
+                            item_path = os.path.join(self.temp_dir, item)
+                            if os.path.isfile(item_path):
+                                size = os.path.getsize(item_path)
+                                logger.error(f"  File: {item}, Size: {size} bytes")
+                    except Exception as e:
+                        logger.error(f"Could not list directory contents: {e}")
+                else:
+                    logger.error("Temp directory does not exist!")
+                
+                # Try one more time to find any files
+                all_files = []
                 try:
-                    contents = os.listdir(self.temp_dir)
-                    logger.error(f"Directory contents: {contents}")
-                    # Log file details
-                    for item in contents:
-                        item_path = os.path.join(self.temp_dir, item)
-                        if os.path.isfile(item_path):
-                            size = os.path.getsize(item_path)
-                            logger.error(f"  File: {item}, Size: {size} bytes")
+                    for root, dirs, files in os.walk(self.temp_dir):
+                        for file in files:
+                            all_files.append(os.path.join(root, file))
+                    logger.error(f"All files in temp directory tree: {all_files}")
                 except Exception as e:
-                    logger.error(f"Could not list directory contents: {e}")
-            else:
-                logger.error("Temp directory does not exist!")
-            
-            # Try one more time to find any files
-            all_files = []
-            try:
-                for root, dirs, files in os.walk(self.temp_dir):
-                    for file in files:
-                        all_files.append(os.path.join(root, file))
-                logger.error(f"All files in temp directory tree: {all_files}")
-            except Exception as e:
-                logger.error(f"Could not walk directory tree: {e}")
-                
-            raise Exception("Code Generation Agent failed to create an Excel file after multiple attempts.")
+                    logger.error(f"Could not walk directory tree: {e}")
+                    
+                raise Exception("Code Generation Agent failed to create an Excel file after multiple attempts.")
 
-        final_excel_path = output_files[0]
-        self.session_state[cache_key] = final_excel_path
-        yield RunResponse(run_id=self.run_id, content=final_excel_path)
+            final_excel_path = output_files[0]
+            self.session_state[cache_key] = final_excel_path
+            workflow_success = True
+            yield RunResponse(run_id=self.run_id, content=final_excel_path)
+        
+        except Exception as e:
+            error_message = str(e)
+            logger.error(f"Workflow failed: {e}")
+            raise
+        finally:
+            # Record execution results
+            execution_monitor.end_execution(
+                execution_id, "workflow", self.temp_dir,
+                success=workflow_success,
+                details={
+                    "run_id": self.run_id,
+                    "data_size": len(json.dumps(json_data)),
+                    "model_id": self.model_id
+                },
+                error_message=error_message
+            )
 
 # All agent creation functions have been moved to /app/agents/ module
 
@@ -507,14 +528,30 @@ def extract_currencies_from_json(json_data: str) -> List[str]:
 
 
 def find_newest_file(directory: str, files_before: set) -> Optional[str]:
-    """Find the newest Excel file in directory with improved reliability."""
-    # Check both the main directory and subdirectories for Excel files
+    """Enhanced file detection with multiple strategies"""
+    import shutil
+    
+    logger.info(f"Starting enhanced file detection in: {directory}")
+    
+    # Strategy 1: Direct path check for common filenames
+    direct_paths = [
+        os.path.join(directory, 'financial_report.xlsx'),
+        os.path.join(directory, 'report.xlsx'),
+        os.path.join(directory, 'backup_report.xlsx'),
+        os.path.join(directory, 'backup_financial_report.xlsx')
+    ]
+    
+    for path in direct_paths:
+        if os.path.exists(path) and path not in files_before:
+            logger.info(f"Found file via direct path: {path}")
+            return path
+    
+    # Strategy 2: Pattern matching with multiple attempts
     patterns = [
         os.path.join(directory, "*.xlsx"),
         os.path.join(directory, "**", "*.xlsx"),  # Recursive search
     ]
     
-    # Improved file detection with multiple attempts
     max_attempts = 5
     attempt_delay = 0.5  # Start with 500ms
     
@@ -529,11 +566,72 @@ def find_newest_file(directory: str, files_before: set) -> Optional[str]:
         
         new_files = files_after - files_before
         if new_files:
-            # Found new files, proceed
             logger.info(f"File detection succeeded on attempt {attempt + 1}")
             break
         
         logger.info(f"File detection attempt {attempt + 1}/{max_attempts} - no new files yet")
+    
+    # Strategy 3: Check common mistake locations and recover files
+    if not new_files:
+        logger.info("No files found in target directory, checking mistake locations...")
+        
+        mistake_locations = [
+            os.getcwd(),  # Current working directory
+            os.path.dirname(directory),  # Parent directory
+            tempfile.gettempdir(),  # System temp
+            os.path.expanduser("~"),  # Home directory
+            "/tmp" if os.path.exists("/tmp") else None,  # Unix temp
+        ]
+        
+        # Remove None values and duplicates
+        mistake_locations = list(set(filter(None, mistake_locations)))
+        
+        for location in mistake_locations:
+            if location != directory and os.path.exists(location):
+                logger.info(f"Checking mistake location: {location}")
+                
+                # Look for Excel files created recently (last 10 minutes)
+                cutoff_time = time.time() - 600  # 10 minutes ago
+                
+                try:
+                    files = glob.glob(os.path.join(location, "*.xlsx"))
+                    for file in files:
+                        if (file not in files_before and 
+                            os.path.exists(file) and 
+                            os.path.getmtime(file) > cutoff_time):
+                            
+                            # Move to correct location
+                            dest = os.path.join(directory, os.path.basename(file))
+                            try:
+                                # Ensure destination doesn't exist
+                                if os.path.exists(dest):
+                                    base, ext = os.path.splitext(dest)
+                                    counter = 1
+                                    while os.path.exists(f"{base}_{counter}{ext}"):
+                                        counter += 1
+                                    dest = f"{base}_{counter}{ext}"
+                                
+                                shutil.move(file, dest)
+                                logger.info(f"Recovered file from {location}: {file} -> {dest}")
+                                
+                                # Update files_after to include recovered file
+                                files_after.add(dest)
+                                new_files = files_after - files_before
+                                break
+                                
+                            except Exception as e:
+                                logger.error(f"Failed to recover file {file}: {e}")
+                                
+                except Exception as e:
+                    logger.warning(f"Could not check location {location}: {e}")
+                
+                if new_files:
+                    break
+    
+    # Strategy 4: Final verification and selection
+    if not new_files:
+        logger.warning(f"No new Excel files found after all strategies")
+        return None
     
     logger.info(f"=== FILE DETECTION DEBUG ===")
     logger.info(f"Directory being searched: {directory}")

@@ -1,4 +1,5 @@
 # app/agents/base.py
+import os
 import uuid
 import logging
 from abc import ABC, abstractmethod
@@ -86,9 +87,54 @@ class BaseAgent(ABC):
         pass
 
     def create_agent(self) -> Agent:
-        """Create the Agno agent instance."""
+        """Create the agent with directory enforcement"""
         if self._agent is not None:
             return self._agent
+        
+        # Ensure temp_dir is absolute and exists
+        if self.temp_dir:
+            self.temp_dir = os.path.abspath(self.temp_dir)
+            os.makedirs(self.temp_dir, exist_ok=True)
+        
+        # Create unique storage for Python agent
+        storage_dir = Path("storage")
+        storage_dir.mkdir(exist_ok=True)
+        unique_db_id = os.urandom(4).hex()
+        db_path = storage_dir / f"python_agents_{unique_db_id}.db"
+        
+        # Ensure storage directory has write permissions
+        storage_dir.chmod(0o755)
+        
+        agent_storage = SqliteStorage(
+            table_name="python_agent_sessions",
+            db_file=str(db_path),
+            auto_upgrade_schema=True
+        )
+        
+        # Ensure database file has write permissions
+        if db_path.exists():
+            db_path.chmod(0o644)
+        
+        # Create Python execution agent with enhanced configuration
+        self._agent = Agent(
+            model=self.create_gemini_model(),
+            tools=self.get_tools(),
+            storage=agent_storage,
+            add_history_to_messages=True,
+            num_history_runs=3,
+            reasoning=False,
+            show_tool_calls=True,
+            markdown=True,
+            add_datetime_to_instructions=True,
+            tool_call_limit=20,
+            instructions=self.get_instructions(),
+            exponential_backoff=True,
+            retries=5,
+            debug_mode=settings.AGNO_DEBUG,
+            monitoring=settings.AGNO_MONITOR,
+        )
+        
+        return self._agent
             
         self._agent = Agent(
             model=self.create_gemini_model(),
