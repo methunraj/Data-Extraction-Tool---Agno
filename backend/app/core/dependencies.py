@@ -50,6 +50,10 @@ async def get_model_service_dep() -> ModelService:
     """Get the model service instance."""
     return get_model_service()
 
+def get_settings():
+    """Get the application settings."""
+    return settings
+
 # Dependency annotations for cleaner imports
 APIKeyDep = Annotated[str, Depends(get_api_key)]
 GoogleClientDep = Annotated[GoogleGenAIClient, Depends(get_google_client)]

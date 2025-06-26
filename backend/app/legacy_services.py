@@ -27,6 +27,21 @@ from .agents.utils.execution_monitor import execution_monitor
 
 logger = logging.getLogger(__name__)
 
+# Lazy import for WebSocket to avoid circular dependency
+event_broadcaster = None
+
+def _get_event_broadcaster():
+    global event_broadcaster
+    if event_broadcaster is None:
+        try:
+            from .routers.websocket import event_broadcaster as eb
+            event_broadcaster = eb
+        except ImportError:
+            # Fallback if WebSocket not available
+            logger.warning("WebSocket event broadcaster not available")
+            event_broadcaster = None
+    return event_broadcaster
+
 # Lazy import to avoid circular dependency
 model_service = None
 
@@ -157,6 +172,18 @@ class FinancialReportWorkflow(Workflow):
         execution_id = f"workflow_{self.run_id}_{int(time.time())}"
         execution_monitor.start_execution(execution_id, "workflow", self.temp_dir)
         
+        # Broadcast workflow start event
+        broadcaster = _get_event_broadcaster()
+        if broadcaster:
+            try:
+                asyncio.create_task(broadcaster.workflow_started(
+                    workflow_id=execution_id,
+                    request_id=self.run_id,
+                    agents=["strategist", "search", "codegen", "qa"]
+                ))
+            except Exception as e:
+                logger.warning(f"Failed to broadcast workflow start: {e}")
+        
         workflow_success = False
         error_message = None
         
@@ -172,9 +199,21 @@ class FinancialReportWorkflow(Workflow):
                 return
 
             # 1. Strategist Agent
-            plan_prompt = f"Create a detailed execution plan to convert the following JSON data into a comprehensive Excel report:\\n\\n{json.dumps(json_data, indent=2)}"
+            if broadcaster:
+                try:
+                    asyncio.create_task(broadcaster.agent_started("strategist", self.run_id))
+                except Exception as e:
+                    logger.warning(f"Failed to broadcast strategist start: {e}")
+                    
+            plan_prompt = f"Create a detailed execution plan to convert the following JSON data into a comprehensive Excel report:\\\\n\\\\n{json.dumps(json_data, indent=2)}"
             yield from self.strategist.run(plan_prompt, stream=True)
             plan = self.strategist.run_response.content
+            
+            if broadcaster:
+                try:
+                    asyncio.create_task(broadcaster.agent_completed("strategist", self.run_id, True, {"plan": plan[:500] + "..." if len(plan) > 500 else plan}))
+                except Exception as e:
+                    logger.warning(f"Failed to broadcast strategist completion: {e}")
             logger.info(f"Strategist Plan:\\n{plan}")
 
             if cancellation_event.is_set():
@@ -203,7 +242,7 @@ class FinancialReportWorkflow(Workflow):
 - Professional borders and styling
 - Multiple sheets for different data categories
 
-✅ MANDATORY: Use FileOperations class for all file operations
+MANDATORY: Use FileOperations class for all file operations
 The agent instructions include a robust FileOperations class that handles:
 - Reliable file saving with multiple fallback strategies
 - File verification and debugging
@@ -217,36 +256,62 @@ JSON Data:
 {json.dumps(json_data, indent=2)}
 
 🚨 CRITICAL: Use the FileOperations class provided in your instructions for reliable file handling!"""
+            
+            if broadcaster:
+                try:
+                    asyncio.create_task(broadcaster.agent_started("codegen", self.run_id))
+                except Exception as e:
+                    logger.warning(f"Failed to broadcast codegen start: {e}")
+                    
             yield from self.code_gen_agent.run(codegen_prompt, stream=True)
+            
+            if broadcaster:
+                try:
+                    asyncio.create_task(broadcaster.agent_completed("codegen", self.run_id, True, {"status": "Code execution completed"}))
+                except Exception as e:
+                    logger.warning(f"Failed to broadcast codegen completion: {e}")
 
             if cancellation_event.is_set():
                 raise asyncio.CancelledError("Workflow cancelled by client request.")
 
             # 4. Quality Assurance Agent
-            qa_prompt = f"""Review the generated Excel file and code execution results. Provide constructive feedback.
+            qa_prompt = """Review the generated Excel file and code execution results. Provide constructive feedback.
 
 REQUIREMENTS TO CHECK:
-1. ✅ Excel file exists at: {self.temp_dir}/financial_report.xlsx
-2. ✅ Multiple sheets with proper data organization
-3. ✅ Professional formatting with colors and styling
-4. ✅ Complete data extraction from JSON
-5. ✅ Executive Summary with key metrics
+1. Excel file exists at: {}/financial_report.xlsx
+2. Multiple sheets with proper data organization
+3. Professional formatting with colors and styling
+4. Complete data extraction from JSON
+5. Executive Summary with key metrics
 
 PROVIDE FEEDBACK ON:
 - Data completeness and accuracy
 - Visual presentation and formatting
-- Suggestions for improvements (but don't block completion)
+- Suggestions for improvements (but do not block completion)
 - Overall report quality assessment
 
 Code Generation Results:
-{self.code_gen_agent.run_response.content}
+{}
 
-Focus on constructive feedback rather than blocking approval. If the file exists and contains data, consider it acceptable."""
+Focus on constructive feedback rather than blocking approval. If the file exists and contains data, consider it acceptable.""".format(self.temp_dir, self.code_gen_agent.run_response.content)
+            
+            if broadcaster:
+                try:
+                    asyncio.create_task(broadcaster.agent_started("qa", self.run_id))
+                except Exception as e:
+                    logger.warning(f"Failed to broadcast qa start: {e}")
+                    
             yield from self.qa_agent.run(qa_prompt, stream=True)
+            
+            if broadcaster:
+                try:
+                    asyncio.create_task(broadcaster.agent_completed("qa", self.run_id, True, {"status": "Quality assurance completed"}))
+                except Exception as e:
+                    logger.warning(f"Failed to broadcast qa completion: {e}")
             logger.info(f"QA Agent Response:\\n{self.qa_agent.run_response.content}")
 
             # Enhanced file detection with multiple patterns and wait logic
-            import time
+
             
             # Try multiple detection attempts with delays
             detection_attempts = 5
@@ -324,6 +389,23 @@ Focus on constructive feedback rather than blocking approval. If the file exists
             logger.error(f"Workflow failed: {e}")
             raise
         finally:
+            # Broadcast workflow completion
+            if broadcaster:
+                try:
+                    results = {"success": workflow_success}
+                    if workflow_success and 'final_excel_path' in locals():
+                        results["output_file"] = final_excel_path
+                    
+                    asyncio.create_task(broadcaster.workflow_completed(
+                        workflow_id=execution_id,
+                        request_id=self.run_id,
+                        success=workflow_success,
+                        results=results,
+                        error=error_message
+                    ))
+                except Exception as e:
+                    logger.warning(f"Failed to broadcast workflow completion: {e}")
+            
             # Record execution results
             execution_monitor.end_execution(
                 execution_id, "workflow", self.temp_dir,
