@@ -7,6 +7,7 @@ from google.genai import types
 
 from ..core.google_client import GoogleGenAIClient
 from ..core.exceptions import GenerationError, ModelNotFoundError, InvalidRequestError
+from ..agents.json_corrector import JSONCorrectorAgent
 from ..schemas.generation import (
     GenerateConfigRequest, GenerateConfigResponse, GeneratedExample,
     GenerateSchemaRequest, GenerateSchemaResponse,
@@ -40,6 +41,13 @@ class GenerationService:
     def __init__(self, model_service: ModelService):
         self.model_service = model_service
         # No longer need direct Google client
+        self.json_corrector = None  # Lazy initialization
+    
+    def _get_json_corrector(self) -> JSONCorrectorAgent:
+        """Get JSON corrector agent with lazy initialization."""
+        if self.json_corrector is None:
+            self.json_corrector = JSONCorrectorAgent()
+        return self.json_corrector
         
     async def generate_unified_config(self, request: GenerateConfigRequest) -> GenerateConfigResponse:
         """Generate complete extraction configuration using Prompt Engineer Agent."""
@@ -75,16 +83,43 @@ class GenerationService:
         - Should be clear and concise
         - Should specify the exact output format expected
         
-        Return ONLY a single JSON object with keys: "schema", "system_prompt", "user_prompt_template", "examples", "reasoning".
-        The 'schema' value should be a JSON string.
-        The 'examples' value should be an array of objects, each with "input" and "output" keys. The "output" should be a JSON string.
+        CRITICAL OUTPUT REQUIREMENTS:
+        1. Return ONLY a single valid JSON object
+        2. No markdown code blocks (```json), no explanations, no additional text
+        3. Start with {{ and end with }}
+        4. Use proper JSON syntax with double quotes for all strings
+        5. Escape any quotes inside string values with backslashes
+        6. No trailing commas
+        7. Ensure all braces and brackets are properly balanced
         
-        IMPORTANT: Return ONLY the JSON object without any markdown formatting, code blocks, or additional text.
+        Required JSON structure:
+        {{
+            "schema": "VALID_JSON_STRING_HERE",
+            "system_prompt": "SYSTEM_PROMPT_TEXT_HERE", 
+            "user_prompt_template": "USER_TEMPLATE_TEXT_HERE",
+            "examples": [
+                {{
+                    "input": "EXAMPLE_INPUT_TEXT",
+                    "output": "VALID_JSON_STRING_OUTPUT"
+                }}
+            ],
+            "reasoning": "EXPLANATION_OF_DESIGN_CHOICES"
+        }}
+        
+        VALIDATION CHECK: Before responding, mentally verify your JSON is valid by checking:
+        - All strings are in double quotes
+        - All braces and brackets are balanced  
+        - No trailing commas
+        - Proper escaping of quotes and special characters
         """
         
         response = await agent.arun(generation_prompt)
-        result = self._parse_agent_response(response.content)
+        result = await self._parse_agent_response(response.content)
         cost = self._calculate_agent_cost(request.model_name, response)
+        
+        # Fix schema field if it's returned as dict instead of string
+        if isinstance(result.get("schema"), dict):
+            result["schema"] = json.dumps(result["schema"])
         
         # Process examples to handle JSON string outputs
         processed_examples = []
@@ -123,7 +158,7 @@ class GenerationService:
         """
         
         response = await agent.arun(prompt)
-        result = self._parse_agent_response(response.content)
+        result = await self._parse_agent_response(response.content)
         cost = self._calculate_agent_cost(request.model_name, response)
 
         return GenerateSchemaResponse(
@@ -143,11 +178,24 @@ class GenerationService:
         Schema: {request.schema}
 
         Generate a system prompt and a user prompt template.
-        Return a single JSON object with keys: "system_prompt", "user_prompt_template".
+        
+        CRITICAL OUTPUT REQUIREMENTS:
+        1. Return ONLY a single valid JSON object
+        2. No markdown code blocks, no explanations, no additional text
+        3. Start with {{ and end with }}
+        4. Use proper JSON syntax with double quotes
+        5. Escape quotes inside strings with backslashes
+        6. No trailing commas
+        
+        Required JSON structure:
+        {{
+            "system_prompt": "DETAILED_SYSTEM_PROMPT_HERE",
+            "user_prompt_template": "USER_TEMPLATE_WITH_PLACEHOLDERS_HERE"
+        }}
         """
 
         response = await agent.arun(prompt)
-        result = self._parse_agent_response(response.content)
+        result = await self._parse_agent_response(response.content)
         cost = self._calculate_agent_cost(request.model_name, response)
 
         return GeneratePromptResponse(
@@ -158,7 +206,7 @@ class GenerationService:
             tokens_used=0  # Agno agents don't provide token usage,
         )
         
-    def _parse_agent_response(self, content: str) -> Dict[str, Any]:
+    async def _parse_agent_response(self, content: str) -> Dict[str, Any]:
         """Safely parse the JSON response from the agent with robust error handling."""
         # Try multiple parsing strategies
         for attempt in range(3):
@@ -166,16 +214,20 @@ class GenerationService:
                 # Log the raw content for debugging
                 if attempt == 0:
                     logger.debug(f"Raw agent response content: {content[:500]}...")
+                    logger.debug(f"Full raw content length: {len(content)}")
                 
                 # Clean up the content
                 cleaned_content = content.strip()
+                logger.debug(f"Content after initial strip: '{cleaned_content[:200]}...' (length: {len(cleaned_content)})")
                 
-                # Handle markdown code blocks
+                # Handle markdown code blocks more robustly
                 if cleaned_content.startswith("```json"):
+                    logger.debug("Removing ```json markdown")
                     cleaned_content = cleaned_content[7:]
                     if cleaned_content.endswith("```"):
                         cleaned_content = cleaned_content[:-3]
                 elif cleaned_content.startswith("```"):
+                    logger.debug("Removing generic ``` markdown")
                     # Handle generic code blocks
                     first_newline = cleaned_content.find('\n')
                     if first_newline != -1:
@@ -183,11 +235,37 @@ class GenerationService:
                     if cleaned_content.endswith("```"):
                         cleaned_content = cleaned_content[:-3]
                 
-                cleaned_content = cleaned_content.strip()
+                # Also handle cases where there might be extra text before/after JSON
+                # Look for JSON object boundaries if no markdown was found
+                if not cleaned_content.startswith('{') and '{' in cleaned_content:
+                    logger.debug("Looking for JSON boundaries in content")
+                    start_idx = cleaned_content.find('{')
+                    end_idx = cleaned_content.rfind('}')
+                    if start_idx != -1 and end_idx != -1 and end_idx > start_idx:
+                        extracted = cleaned_content[start_idx:end_idx+1]
+                        logger.debug(f"Extracted JSON from position {start_idx} to {end_idx}")
+                        cleaned_content = extracted
                 
-                # If content is empty after cleaning, log error
+                cleaned_content = cleaned_content.strip()
+                logger.debug(f"Content after markdown cleanup: '{cleaned_content[:200]}...' (length: {len(cleaned_content)})")
+                
+                # If content is empty after cleaning, try JSON corrector as fallback
                 if not cleaned_content:
                     logger.error("Content is empty after markdown cleanup")
+                    logger.error(f"Original content was: '{content}'")
+                    
+                    # Try JSON corrector agent as last resort
+                    if attempt == 2:  # Only on final attempt
+                        logger.warning("Attempting JSON correction on original content")
+                        try:
+                            corrector = self._get_json_corrector()
+                            corrected_json = await corrector.correct_malformed_json(content)
+                            corrected_result = json.loads(corrected_json)
+                            logger.info("JSON corrector agent successfully handled empty content")
+                            return corrected_result
+                        except Exception as correction_error:
+                            logger.error(f"JSON corrector agent also failed on empty content: {correction_error}")
+                    
                     raise GenerationError("Agent returned empty content after parsing")
                 
                 # Handle case where agent returns partial JSON (starting with a field)
@@ -202,6 +280,9 @@ class GenerationService:
                     else:
                         logger.error("Could not find valid JSON object boundaries")
                         raise GenerationError(f"Agent response doesn't contain valid JSON: {cleaned_content[:200]}...")
+                
+                # Clean up malformed JSON structure - fix spacing and formatting issues
+                cleaned_content = self._clean_malformed_json(cleaned_content)
                 
                 # Apply escape sequence fixes based on attempt
                 if attempt == 1:
@@ -221,7 +302,18 @@ class GenerationService:
                 if attempt == 2:  # Last attempt
                     logger.error(f"All JSON parsing attempts failed")
                     logger.error(f"Final cleaned content: {cleaned_content[:1000]}...")
-                    # Try to extract and return partial JSON as fallback
+                    # Try JSON corrector agent as fallback
+                    logger.warning("Attempting JSON correction using specialized agent")
+                    try:
+                        corrector = self._get_json_corrector()
+                        corrected_json = await corrector.correct_malformed_json(cleaned_content)
+                        corrected_result = json.loads(corrected_json)
+                        logger.info("JSON corrector agent successfully fixed the malformed JSON")
+                        return corrected_result
+                    except Exception as correction_error:
+                        logger.error(f"JSON corrector agent also failed: {correction_error}")
+                    
+                    # Try to extract and return partial JSON as final fallback
                     fallback_result = self._extract_partial_json(cleaned_content)
                     if fallback_result:
                         logger.warning("Using fallback partial JSON extraction")
@@ -262,6 +354,27 @@ class GenerationService:
         
         return fixed_content
     
+    def _clean_malformed_json(self, content: str) -> str:
+        """Clean up malformed JSON structure with spacing and formatting issues."""
+        import re
+        
+        # Fix the specific issue where there are extra spaces before quotes
+        # Pattern: {      "key": -> {"key":
+        content = re.sub(r'{\s+\"', r'{"', content)
+        
+        # Fix spaces before colons and commas
+        content = re.sub(r'\s+\":', r'":', content)
+        content = re.sub(r'\s+,', r',', content)
+        
+        # Fix multiple spaces between elements
+        content = re.sub(r'\s{2,}', r' ', content)
+        
+        # Ensure proper spacing after colons and commas
+        content = re.sub(r':\s*(["\{\[])', r': \1', content)
+        content = re.sub(r',\s*(["\{\[])', r', \1', content)
+        
+        return content.strip()
+    
     def _repair_json_aggressively(self, content: str) -> str:
         """More aggressive JSON repair for severely malformed JSON."""
         import re
@@ -269,18 +382,31 @@ class GenerationService:
         # Remove any non-printable characters
         content = re.sub(r'[\x00-\x1f\x7f-\x9f]', '', content)
         
+        # Apply the malformed JSON cleaning first
+        content = self._clean_malformed_json(content)
+        
         # Fix unescaped quotes in strings (very basic approach)
         # This is risky and might break valid JSON, so only used as last resort
         content = re.sub(r'(?<!\\)"(?![,\]\}:])', r'\\"', content)
         
         # Remove any trailing commas
-        content = re.sub(r',(\s*[}\]])', r'\1', content)
+        content = re.sub(r',(\\s*[}\\]])', r'\\1', content)
         
         # Try to balance braces and brackets
         open_braces = content.count('{')
         close_braces = content.count('}')
         if open_braces > close_braces:
             content += '}' * (open_braces - close_braces)
+        
+        # Handle the specific case where we have nested JSON strings
+        # Look for patterns like "output": "{ ... }" and try to parse the inner JSON
+        output_match = re.search(r'"output":\s*"(\{.*\})"', content, re.DOTALL)
+        if output_match:
+            inner_json = output_match.group(1)
+            # Unescape the inner JSON
+            inner_json = inner_json.replace('\\"', '"').replace('\\n', '\n').replace('\\t', '\t')
+            # Replace the escaped JSON with the unescaped version
+            content = content.replace(output_match.group(0), f'"output": {inner_json}')
         
         return content
     

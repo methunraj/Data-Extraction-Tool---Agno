@@ -8,6 +8,7 @@ from .transform_data.strategist import StrategistAgent
 from .transform_data.codegen import CodeGenAgent
 from .transform_data.qa import QualityAssuranceAgent
 from .prompt_engineer.prompt_engineer import PromptEngineerAgent
+from .json_corrector import JSONCorrectorAgent
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +45,9 @@ def create_agent(agent_type: str, **kwargs) -> Agent:
         return agent_instance.agent
     elif agent_type == "prompt_engineer":
         agent_instance = PromptEngineerAgent(model_id=model_id)
+        return agent_instance.agent
+    elif agent_type == "json_corrector":
+        agent_instance = JSONCorrectorAgent(model_id=model_id)
         return agent_instance.agent
     else:
         raise ValueError(f"Unknown agent type: {agent_type}")
