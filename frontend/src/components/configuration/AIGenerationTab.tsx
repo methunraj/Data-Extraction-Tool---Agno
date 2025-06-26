@@ -502,7 +502,9 @@ export function AIGenerationTab() {
                       </div>
                       <div>
                         <Label className="text-xs text-muted-foreground">Output</Label>
-                        <div className="text-sm p-2 rounded bg-background font-mono">{example.output}</div>
+                        <div className="text-sm p-2 rounded bg-background font-mono">
+                          {typeof example.output === 'object' ? JSON.stringify(example.output, null, 2) : example.output}
+                        </div>
                       </div>
                     </div>
                   ))}
@@ -628,7 +630,9 @@ export function AIGenerationTab() {
                               </div>
                               <div>
                                 <Label className="text-xs text-muted-foreground">Output</Label>
-                                <div className="text-sm p-2 rounded bg-background font-mono">{example.output}</div>
+                                <div className="text-sm p-2 rounded bg-background font-mono">
+                                  {typeof example.output === 'object' ? JSON.stringify(example.output, null, 2) : example.output}
+                                </div>
                               </div>
                             </div>
                           ))}

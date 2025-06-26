@@ -8,6 +8,22 @@ from ..agents import get_agent_info
 
 router = APIRouter(prefix="/api/agents", tags=["agents"])
 
+@router.get("/agents/types")
+async def get_agent_types():
+    """Get all available agent types and their purposes."""
+    return {
+        "transform_data": ["strategist", "search", "codegen", "qa"],
+        "prompt_engineer": ["prompt_engineer"]
+    }
+
+@router.get("/agents/{agent_type}/status")
+async def get_agent_status(agent_type: str):
+    """Get status of a specific agent type."""
+    # This is a placeholder implementation. In a real application, you would
+    # query the agent pool or a monitoring service for more detailed status.
+    return {"agent_type": agent_type, "status": "active"}
+
+
 @router.get("/pool/status")
 async def get_pool_status(
     api_key: APIKeyDep

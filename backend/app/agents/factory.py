@@ -3,10 +3,11 @@ import logging
 from typing import Dict, Optional, Any
 
 from agno.agent import Agent
-from .search_agent import SearchAgent
-from .strategist_agent import StrategistAgent
-from .codegen_agent import CodeGenAgent
-from .qa_agent import QualityAssuranceAgent
+from .transform_data.search import SearchAgent
+from .transform_data.strategist import StrategistAgent
+from .transform_data.codegen import CodeGenAgent
+from .transform_data.qa import QualityAssuranceAgent
+from .prompt_engineer.prompt_engineer import PromptEngineerAgent
 
 logger = logging.getLogger(__name__)
 
@@ -14,27 +15,35 @@ def create_agent(agent_type: str, **kwargs) -> Agent:
     """Factory function to create agents based on type.
     
     Args:
-        agent_type: Type of agent ('search', 'strategist', 'qa', 'codegen')
+        agent_type: Type of agent ('search', 'strategist', 'qa', 'codegen', 'prompt_engineer')
         **kwargs: Additional arguments for agent creation
+            - model_id: Model ID to use for the agent
+            - temp_dir: Temporary directory (for codegen)
+            - exchange_rates: Exchange rates (for codegen)
     
     Returns:
         Agent instance
     """
+    model_id = kwargs.get("model_id")
+    
     if agent_type == "search":
-        agent_instance = SearchAgent()
+        agent_instance = SearchAgent(model_id=model_id)
         return agent_instance.agent
     elif agent_type == "strategist":
-        agent_instance = StrategistAgent()
+        agent_instance = StrategistAgent(model_id=model_id)
         return agent_instance.agent
     elif agent_type == "qa":
-        agent_instance = QualityAssuranceAgent()
+        agent_instance = QualityAssuranceAgent(model_id=model_id)
         return agent_instance.agent
     elif agent_type == "codegen":
         temp_dir = kwargs.get("temp_dir")
         if not temp_dir:
             raise ValueError("temp_dir is required for codegen agent")
         exchange_rates = kwargs.get("exchange_rates")
-        agent_instance = CodeGenAgent(temp_dir, exchange_rates)
+        agent_instance = CodeGenAgent(temp_dir, exchange_rates, model_id=model_id)
+        return agent_instance.agent
+    elif agent_type == "prompt_engineer":
+        agent_instance = PromptEngineerAgent(model_id=model_id)
         return agent_instance.agent
     else:
         raise ValueError(f"Unknown agent type: {agent_type}")

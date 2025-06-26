@@ -261,12 +261,12 @@ class ModelService:
             self.observer.join()
             logger.info("File watcher stopped")
 
-# Singleton instance
-_model_service_instance = None
+# Global model service instance
+_model_service = None
 
 def get_model_service() -> ModelService:
-    """Get the singleton ModelService instance."""
-    global _model_service_instance
-    if _model_service_instance is None:
-        _model_service_instance = ModelService()
-    return _model_service_instance
+    """Get the global model service instance."""
+    global _model_service
+    if _model_service is None:
+        _model_service = ModelService()
+    return _model_service

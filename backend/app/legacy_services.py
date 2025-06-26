@@ -11,7 +11,6 @@ import asyncio
 import traceback
 from functools import lru_cache
 from typing import Dict, List, Tuple, Any, Optional, Iterator
-from fastapi import Request
 
 # Set Matplotlib backend to a non-GUI backend to avoid threading issues
 import matplotlib
@@ -19,34 +18,47 @@ matplotlib.use('Agg')  # Must be before any other matplotlib imports
 
 from agno.agent import Agent, RunResponse
 from agno.workflow import Workflow
-from agno.models.google import Gemini
-from agno.storage.sqlite import SqliteStorage
-from agno.tools.python import PythonTools
+
 from .core.config import settings
-from .services.model_service import get_model_service
 from .agents import create_agent
 
 logger = logging.getLogger(__name__)
 
-# Get model service for dynamic model selection
-model_service = get_model_service()
+# Lazy import to avoid circular dependency
+model_service = None
+
+def _get_model_service():
+    global model_service
+    if model_service is None:
+        try:
+            from .utils.model_utils import get_model_service
+            model_service = get_model_service()
+        except ImportError:
+            # Fallback if circular import issues
+            model_service = None
+    return model_service
 
 def get_agno_model() -> str:
     """Get the configured model for Agno processing."""
     # Try to get a model that supports 'agno' purpose
-    agno_models = model_service.get_models_for_purpose("agno")
-    if agno_models:
-        # Prefer 2.0-flash models for speed, fall back to 2.5-flash for compatibility
-        for model in agno_models:
-            if "2.0-flash" in model["id"]:
-                return model["id"]
-        for model in agno_models:
-            if "2.5-flash" in model["id"]:
-                return model["id"]
-        # Return first available agno model
-        return agno_models[0]["id"]
+    service = _get_model_service()
+    if service:
+        try:
+            agno_models = service.get_models_for_purpose("agno")
+            if agno_models:
+                # Prefer 2.0-flash models for speed, fall back to 2.5-flash for compatibility
+                for model in agno_models:
+                    if "2.0-flash" in model["id"]:
+                        return model["id"]
+                for model in agno_models:
+                    if "2.5-flash" in model["id"]:
+                        return model["id"]
+                # Return first available agno model
+                return agno_models[0]["id"]
+        except Exception as e:
+            logger.warning(f"Failed to get agno models from service: {e}")
     
-    # Fallback to default if no agno models found
+    # Fallback to default if no agno models found or service unavailable
     return settings.DEFAULT_AI_MODEL
 
 # Set up Agno monitoring environment variables if configured
@@ -61,18 +73,32 @@ if settings.AGNO_DEBUG:
 AGENT_POOL: Dict[str, Agent] = {}
 MAX_POOL_SIZE = settings.MAX_POOL_SIZE  # Reasonable limit for different model types
 
+AGENT_CLASSES = {
+    # Transform data agents
+    "strategist": ("transform_data", "StrategistAgent"),
+    "search": ("transform_data", "SearchAgent"),
+    "codegen": ("transform_data", "CodeGenAgent"),
+    "qa": ("transform_data", "QualityAssuranceAgent"),
+    # Prompt engineer agent
+    "prompt_engineer": ("prompt_engineer", "PromptEngineerAgent"),
+}
+
 def get_agent_by_key(agent_type: str, **kwargs) -> Agent:
     """Get or create an agent from the pool based on type and current model configuration.
     
     Args:
         agent_type: Type of agent ('search', 'strategist', 'qa', 'codegen')
-        **kwargs: Additional arguments for agent creation (e.g., temp_dir for codegen)
+        **kwargs: Additional arguments for agent creation (e.g., temp_dir for codegen, model_id for custom model)
     
     Returns:
         Agent instance from pool or newly created
     """
-    # Get current model to include in cache key
-    current_model = get_agno_model()
+    if agent_type not in AGENT_CLASSES:
+        raise ValueError(f"Unknown agent type: {agent_type}")
+
+    # Get model - use provided model_id or fallback to default agno model
+    model_id = kwargs.pop('model_id', None)
+    current_model = model_id if model_id else get_agno_model()
     cache_key = f"{agent_type}_{current_model}"
     
     # Check if agent exists in pool
@@ -88,7 +114,8 @@ def get_agent_by_key(agent_type: str, **kwargs) -> Agent:
         logger.info(f"Removed agent {oldest_key} from pool to make space")
     
     # Create new agent using factory function
-    agent = create_agent(agent_type, **kwargs)
+    module_path, agent_class_name = AGENT_CLASSES[agent_type]
+    agent = create_agent(agent_type, model_id=current_model, **kwargs)
     
     # Add to pool
     AGENT_POOL[cache_key] = agent
@@ -103,14 +130,15 @@ def get_agent_by_key(agent_type: str, **kwargs) -> Agent:
 class FinancialReportWorkflow(Workflow):
     """A stateful, deterministic workflow for generating financial reports."""
 
-    def __init__(self, temp_dir: str):
+    def __init__(self, temp_dir: str, model_id: Optional[str] = None):
         super().__init__()
         self.temp_dir = temp_dir
+        self.model_id = model_id
         # Use pooled agents for better performance and dynamic model selection
-        self.strategist = get_agent_by_key("strategist")
-        self.search_agent = get_agent_by_key("search")
-        self.code_gen_agent = get_agent_by_key("codegen", temp_dir=temp_dir)
-        self.qa_agent = get_agent_by_key("qa")
+        self.strategist = get_agent_by_key("strategist", model_id=model_id)
+        self.search_agent = get_agent_by_key("search", model_id=model_id)
+        self.code_gen_agent = get_agent_by_key("codegen", temp_dir=temp_dir, model_id=model_id)
+        self.qa_agent = get_agent_by_key("qa", model_id=model_id)
 
     def run_workflow(self, json_data: Dict[str, Any], cancellation_event: asyncio.Event) -> Iterator[RunResponse]:
         """Executes the financial report generation workflow."""
@@ -143,21 +171,145 @@ class FinancialReportWorkflow(Workflow):
             raise asyncio.CancelledError("Workflow cancelled by client request.")
 
         # 3. Code Generation Agent
-        codegen_prompt = f"Based on the following plan, and the provided JSON data, generate the python code to create the excel report and EXECUTE it immediately.\n\nIMPORTANT: You must RUN the Python code to actually create the Excel file - don't just show the code!\n\nPlan:\n{plan}\n\nJSON Data:\n{json.dumps(json_data, indent=2)}"
+        codegen_prompt = f"""Based on the following plan and JSON data, create and EXECUTE Python code to generate a comprehensive Excel report.
+
+🎯 CRITICAL SUCCESS REQUIREMENTS:
+1. You MUST execute the code immediately using your Python tools
+2. Create Excel file in this EXACT directory: {self.temp_dir}
+3. Use filename: financial_report.xlsx (or backup names if needed)
+4. VERIFY file creation with mandatory checks (see instructions)
+
+🔧 RELIABILITY STRATEGY:
+- Use MULTIPLE save attempts with different filenames
+- VERIFY file exists after each save attempt
+- Use shell commands for debugging if needed
+- Try alternative libraries (pandas, xlsxwriter) if openpyxl fails
+- Check file permissions and directory access before starting
+
+📊 FORMATTING REQUIREMENTS:
+- Header row: Navy blue background (#1F4E79) with white text
+- Alternate row colors: Light blue (#E6F2FF) and white
+- Currency cells: Green for positive, red for negative
+- Bold fonts for headers and totals
+- Professional borders and styling
+- Multiple sheets for different data categories
+
+✅ MANDATORY VERIFICATION STEPS:
+After creating the file, you MUST execute:
+1. print(f'File exists: {{os.path.exists(filepath)}}')
+2. print(f'File size: {{os.path.getsize(filepath) if os.path.exists(filepath) else 0}} bytes')
+3. print(f'Directory contents: {{os.listdir(os.path.dirname(filepath))}}')
+
+🔄 IF FILE CREATION FAILS:
+- Try different filenames (report.xlsx, backup_report.xlsx)
+- Use pandas.to_excel() as fallback
+- Debug with shell commands (ls, pwd, whoami)
+- Check permissions with shell touch command
+- DO NOT GIVE UP until file is created and verified
+
+Plan:
+{plan}
+
+JSON Data:
+{json.dumps(json_data, indent=2)}
+
+🚨 CRITICAL: The Excel file MUST be physically created and verified. Use all tools available!"""
         yield from self.code_gen_agent.run(codegen_prompt, stream=True)
 
         if cancellation_event.is_set():
             raise asyncio.CancelledError("Workflow cancelled by client request.")
 
         # 4. Quality Assurance Agent
-        qa_prompt = f"Review the following code and plan to ensure the generated report meets all requirements. Code:\n{self.code_gen_agent.run_response.content}"
+        qa_prompt = f"""Review the generated Excel file and code execution results. Provide constructive feedback.
+
+REQUIREMENTS TO CHECK:
+1. ✅ Excel file exists at: {self.temp_dir}/financial_report.xlsx
+2. ✅ Multiple sheets with proper data organization
+3. ✅ Professional formatting with colors and styling
+4. ✅ Complete data extraction from JSON
+5. ✅ Executive Summary with key metrics
+
+PROVIDE FEEDBACK ON:
+- Data completeness and accuracy
+- Visual presentation and formatting
+- Suggestions for improvements (but don't block completion)
+- Overall report quality assessment
+
+Code Generation Results:
+{self.code_gen_agent.run_response.content}
+
+Focus on constructive feedback rather than blocking approval. If the file exists and contains data, consider it acceptable."""
         yield from self.qa_agent.run(qa_prompt, stream=True)
         logger.info(f"QA Agent Response:\n{self.qa_agent.run_response.content}")
 
-        # Finalize and cache
-        output_files = glob.glob(f"{self.temp_dir}/*.xlsx")
+        # Enhanced file detection with multiple patterns and wait logic
+        import time
+        
+        # Try multiple detection attempts with delays
+        detection_attempts = 5
+        wait_between_attempts = 2  # seconds
+        
+        output_files = []
+        for attempt in range(detection_attempts):
+            logger.info(f"File detection attempt {attempt + 1}/{detection_attempts}")
+            
+            # Try multiple file patterns
+            search_patterns = [
+                f"{self.temp_dir}/financial_report.xlsx",
+                f"{self.temp_dir}/report.xlsx", 
+                f"{self.temp_dir}/backup_report.xlsx",
+                f"{self.temp_dir}/*.xlsx",
+                f"{self.temp_dir}/**/*.xlsx"  # Recursive search
+            ]
+            
+            for pattern in search_patterns:
+                files = glob.glob(pattern, recursive=True)
+                if files:
+                    # Filter out empty files
+                    valid_files = [f for f in files if os.path.exists(f) and os.path.getsize(f) > 0]
+                    if valid_files:
+                        output_files = valid_files
+                        logger.info(f"Found {len(valid_files)} valid Excel files: {valid_files}")
+                        break
+            
+            if output_files:
+                break
+                
+            if attempt < detection_attempts - 1:
+                logger.info(f"No files found, waiting {wait_between_attempts}s before retry...")
+                time.sleep(wait_between_attempts)
+        
         if not output_files:
-            raise Exception("Code Generation Agent failed to create an Excel file.")
+            # Enhanced error reporting
+            logger.error(f"CRITICAL: No Excel files found after {detection_attempts} attempts")
+            logger.error(f"Temp directory: {self.temp_dir}")
+            logger.error(f"Directory exists: {os.path.exists(self.temp_dir)}")
+            if os.path.exists(self.temp_dir):
+                try:
+                    contents = os.listdir(self.temp_dir)
+                    logger.error(f"Directory contents: {contents}")
+                    # Log file details
+                    for item in contents:
+                        item_path = os.path.join(self.temp_dir, item)
+                        if os.path.isfile(item_path):
+                            size = os.path.getsize(item_path)
+                            logger.error(f"  File: {item}, Size: {size} bytes")
+                except Exception as e:
+                    logger.error(f"Could not list directory contents: {e}")
+            else:
+                logger.error("Temp directory does not exist!")
+            
+            # Try one more time to find any files
+            all_files = []
+            try:
+                for root, dirs, files in os.walk(self.temp_dir):
+                    for file in files:
+                        all_files.append(os.path.join(root, file))
+                logger.error(f"All files in temp directory tree: {all_files}")
+            except Exception as e:
+                logger.error(f"Could not walk directory tree: {e}")
+                
+            raise Exception("Code Generation Agent failed to create an Excel file after multiple attempts.")
 
         final_excel_path = output_files[0]
         self.session_state[cache_key] = final_excel_path
@@ -322,42 +474,7 @@ def direct_json_to_excel(json_data: str, file_name: str, chunk_size: int, temp_d
             logger.info(f"Retrying direct conversion (attempt {retry_count+1}/{max_retries})...")
 
 
-async def convert_with_agno_async(fastapi_request, json_data: str, file_name: str, description: str, temp_dir: str, user_id: str = None, session_id: str = None) -> tuple[str, str]:
-    """Async version of convert_with_agno for better performance."""
 
-    cancelled = asyncio.Event()
-
-    async def check_disconnection():
-        while not cancelled.is_set():
-            if await fastapi_request.is_disconnected():
-                logger.warning("Client disconnected, setting cancellation event.")
-                cancelled.set()
-                break
-            await asyncio.sleep(0.1) # Check every 100ms
-
-    # Start a background task to check for disconnection
-    disconnection_checker = asyncio.create_task(check_disconnection())
-
-    loop = asyncio.get_event_loop()
-    try:
-        # Run the synchronous function in a thread pool
-        result = await loop.run_in_executor(
-            None,  # Default executor
-            convert_with_agno,
-            cancelled, # Pass cancellation event
-            json_data,
-            file_name,
-            description,
-            temp_dir,
-            user_id,
-            session_id
-        )
-        return result
-    finally:
-        # Stop the disconnection checker
-        if not cancelled.is_set():
-            cancelled.set() # Ensure the checker loop terminates
-        await disconnection_checker # Wait for the checker to finish
 
 
 def extract_currencies_from_json(json_data: str) -> List[str]:
@@ -386,182 +503,7 @@ def extract_currencies_from_json(json_data: str) -> List[str]:
     return list(currencies)
 
 
-def convert_with_agno(cancelled: asyncio.Event, json_data: str, file_name: str, description: str, temp_dir: str, user_id: str = None, session_id: str = None) -> tuple[str, str]:
-    """
-    Convert JSON data to Excel using a two-agent approach:
-    1. Search agent to get exchange rates
-    2. Python agent to generate Excel with the rates
-    """
-    import uuid
-    
-    # Get debug setting from configuration
-    debug_enabled = settings.AGNO_DEBUG
-    
-    # Generate session IDs if not provided
-    if not user_id:
-        user_id = f"user_{uuid.uuid4().hex[:8]}"
-    if not session_id:
-        session_id = f"session_{uuid.uuid4().hex[:8]}"
-    
-    # Validate input
-    if not json_data or not json_data.strip():
-        raise ValueError("Empty JSON data provided - cannot process")
-    
-    max_retries = 2
-    retry_count = 0
-    last_error = None
-    
-    while retry_count < max_retries:
-        try:
-            # Step 1: Extract currencies from JSON data
-            currencies_to_convert = extract_currencies_from_json(json_data)
-            exchange_rates = {}
-            
-            # Step 2: Use search agent to get exchange rates if needed
-            if currencies_to_convert:
-                logger.info(f"Currencies found in data: {currencies_to_convert}")
-                search_agent = create_search_agent()
-                
-                # Create search prompt
-                currency_list = ", ".join(currencies_to_convert)
-                search_prompt = f"""
-                I need the current exchange rates for the following currencies to USD:
-                {currency_list}
-                
-                Please provide the exchange rates in a clear format.
-                For example: 1 EUR = X.XX USD
-                """
-                
-                logger.info("Using search agent to get exchange rates...")
-                search_response = search_agent.run(search_prompt, stream=False)
-                
-                if hasattr(search_response, 'content') and search_response.content:
-                    logger.info(f"Exchange rates retrieved: {search_response.content[:200]}...")
-                    
-                    # Parse exchange rates from response (basic parsing)
-                    # This is a simple parser - could be improved with regex
-                    for line in search_response.content.split('\n'):
-                        for currency in currencies_to_convert:
-                            if currency in line and "USD" in line:
-                                try:
-                                    # Extract rate from patterns like "1 EUR = 1.0885 USD"
-                                    parts = line.split('=')
-                                    if len(parts) == 2:
-                                        rate_str = parts[1].strip().replace('USD', '').strip()
-                                        rate = float(rate_str)
-                                        exchange_rates[currency] = rate
-                                        logger.info(f"Parsed rate: 1 {currency} = {rate} USD")
-                                except:
-                                    pass
-            
-            # Step 3: Use Python agent to generate Excel with exchange rates
-            python_agent = create_code_gen_agent(temp_dir, exchange_rates)
-            
-            # Create the prompt for Excel generation
-            json_preview = json_data[:200] + "..." if len(json_data) > 200 else json_data
-            
-            prompt = f"""
-            Create an Excel report from this financial data. Follow your instructions exactly.
-            
-            Base filename: {file_name}
-            Data source: {description}
-            
-            REMEMBER: 
-            1. Change directory to {temp_dir} FIRST in your script
-            2. The currency conversion rates have been provided in your instructions
-            3. Create columns for both original currency AND USD values using the provided rates
-            4. Print the absolute file path when done
-            5. Keep the analysis simple but include currency conversion
-            6. Use openpyxl library for Excel creation
-            
-            **WORKING DIRECTORY:** {temp_dir}
-            **IMPORTANT:** All files must be created in the working directory above. Use relative paths only.
-            
-            JSON Data:
-            {json_data}
-            """
-            
-            # Log clean debug info
-            if debug_enabled:
-                logger.info(f"🤖 AI PROMPT SUMMARY:")
-                logger.info(f"   📁 Working Directory: {temp_dir}")
-                logger.info(f"   📄 File Name: {file_name}")
-                logger.info(f"   📝 Description: {description}")
-                logger.info(f"   📊 JSON Data Size: {len(json_data)} characters")
-                logger.info(f"   🔍 JSON Preview: {json_preview}")
-                logger.info(f"   💱 Exchange Rates: {exchange_rates}")
-                logger.info(f"   🎯 Task: Financial Excel report with currency conversion")
-            
-            # Execute Python agent
-            logger.info(f"Starting Python agent processing (attempt {retry_count + 1}/{max_retries})...")
-            
 
-
-            # Since python_agent.run is blocking, we can't easily interrupt it.
-            # The best we can do is check for cancellation *before* this long-running call.
-            if cancelled.is_set():
-                logger.warning("Cancellation detected before starting agent run.")
-                raise asyncio.CancelledError("Processing cancelled before agent execution")
-
-            response = python_agent.run(
-                prompt,
-                stream=False,
-                show_tool_calls=True,
-                markdown=True,
-                user_id=user_id,
-                session_id=session_id
-            )
-
-            # And check again immediately after.
-            if cancelled.is_set():
-                logger.warning("Cancellation detected after agent run.")
-                # Clean up any files created by the agent if necessary
-                raise asyncio.CancelledError("Processing cancelled after agent execution")
-            
-            # Validate response
-            if not hasattr(response, 'content') or not response.content:
-                logger.warning("Agent returned empty response")
-                raise ValueError("Agent returned empty response content")
-            
-            logger.info(f"Python agent completed processing successfully")
-            
-            # Enhanced debug logging
-            if debug_enabled:
-                logger.info(f"🧠 AI RESPONSE ANALYSIS:")
-                if hasattr(response, 'tool_calls') and response.tool_calls:
-                    logger.info(f"   🔧 Tool Calls: {len(response.tool_calls)} executed")
-                    for i, tool_call in enumerate(response.tool_calls):
-                        tool_name = getattr(tool_call, 'name', 'Unknown Tool')
-                        logger.info(f"   🛠️  Tool {i+1}: {tool_name}")
-                
-                content_preview = response.content[:300] + "..." if len(response.content) > 300 else response.content
-                logger.info(f"   📄 Response Length: {len(response.content)} characters")
-                logger.info(f"   📋 Response Preview: {content_preview}")
-            
-            # Return response
-            logger.info(f"Session management: user_id={user_id}, session_id={session_id}")
-            return response.content, session_id
-            
-        except Exception as e:
-            retry_count += 1
-            last_error = str(e)
-            error_details = traceback.format_exc()
-            error_type = type(e).__name__
-            
-            logger.error(f"Agno AI processing failed (attempt {retry_count}/{max_retries})")
-            logger.error(f"Error type: {error_type}")
-            logger.error(f"Error message: {e}")
-            logger.error(f"Full traceback:\n{error_details}")
-            
-            if retry_count >= max_retries:
-                logger.error(f"All {max_retries} attempts failed. Final error type: {error_type}")
-                logger.error(f"Final error message: {last_error}")
-                raise
-            
-            # Exponential backoff
-            delay = min(retry_count * 2, 10)
-            logger.info(f"Retrying conversion in {delay} seconds (attempt {retry_count+1}/{max_retries})...")
-            time.sleep(delay)
 
 
 def find_newest_file(directory: str, files_before: set) -> Optional[str]:
@@ -692,3 +634,19 @@ def cleanup_storage_files():
                     logger.debug(f"Cleaned up old storage file: {db_file}")
                 except OSError as e:
                     logger.warning(f"Failed to remove old storage file {db_file}: {e}")
+
+
+# Export main functions for use in main.py
+__all__ = [
+    'FinancialReportWorkflow',
+    'direct_json_to_excel_async', 
+    'direct_json_to_excel',
+    'cleanup_agent_pool',
+    'get_agent_pool_status',
+    'ModelService',
+    'GenerationService', 
+    'TokenService',
+    'model_service',
+    'generation_service',
+    'token_service'
+]

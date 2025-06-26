@@ -26,6 +26,7 @@ class ExtractDataRequest(BaseModel):
     # Schema and prompts
     schema_definition: str = Field(description="JSON schema for extraction")
     system_prompt: str = Field(description="System prompt for the AI model")
+    user_prompt_template: Optional[str] = Field(None, description="User prompt template with placeholders")
     user_task_description: Optional[str] = Field(None, description="Additional user instructions")
     
     # Model configuration

@@ -18,9 +18,16 @@ export async function POST(req: NextRequest) {
     // Use API key from request or get from environment for googleAI
     const finalApiKey = apiKey || (llmProvider === 'googleAI' ? process.env.GOOGLE_API_KEY : null);
     
+    console.log('API Key Debug:', {
+      provided: !!apiKey,
+      fromEnv: !!process.env.GOOGLE_API_KEY,
+      llmProvider,
+      hasKey: !!finalApiKey
+    });
+    
     if (!finalApiKey) {
       return NextResponse.json(
-        { success: false, error: 'API key is required' },
+        { success: false, error: 'API key is required. Please set your Google API key in the LLM configuration.' },
         { status: 400 }
       );
     }

@@ -10,35 +10,45 @@ from agno.models.google import Gemini
 from agno.storage.sqlite import SqliteStorage
 
 from ..core.config import settings
-from ..services.model_service import get_model_service
+from ..utils.model_utils import get_model_service
 
 logger = logging.getLogger(__name__)
 
 class BaseAgent(ABC):
     """Base class for all Agno agents with common functionality."""
     
-    def __init__(self, agent_type: str, temp_dir: Optional[str] = None):
+    def __init__(self, agent_type: str, temp_dir: Optional[str] = None, model_id: Optional[str] = None):
         self.agent_type = agent_type
         self.temp_dir = temp_dir
+        self.model_id = model_id
         self.model_service = get_model_service()
         self._agent: Optional[Agent] = None
         
     def get_agno_model(self) -> str:
         """Get the configured model for Agno processing."""
+        # Use specified model if provided
+        if self.model_id:
+            logger.info(f"Using specified model_id: {self.model_id}")
+            return self.model_id
+            
         # Try to get a model that supports 'agno' purpose
         agno_models = self.model_service.get_models_for_purpose("agno")
         if agno_models:
             # Prefer 2.0-flash models for speed, fall back to 2.5-flash for compatibility
             for model in agno_models:
                 if "2.0-flash" in model["id"]:
+                    logger.info(f"Using default 2.0-flash model: {model['id']}")
                     return model["id"]
             for model in agno_models:
                 if "2.5-flash" in model["id"]:
+                    logger.info(f"Using default 2.5-flash model: {model['id']}")
                     return model["id"]
             # Return first available agno model
+            logger.info(f"Using first available agno model: {agno_models[0]['id']}")
             return agno_models[0]["id"]
         
         # Fallback to default if no agno models found
+        logger.info(f"Using fallback default model: {settings.DEFAULT_AI_MODEL}")
         return settings.DEFAULT_AI_MODEL
 
     def create_storage(self, table_name: str) -> SqliteStorage:

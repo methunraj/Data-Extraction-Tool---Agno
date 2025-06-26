@@ -25,6 +25,8 @@ export function LLMSettingsTab() {
     refreshModels,
     extractionModel, 
     setExtractionModel,
+    generationModel,
+    setGenerationModel,
     agnoModel, 
     setAgnoModel 
   } = useLLMConfig();
@@ -167,7 +169,7 @@ export function LLMSettingsTab() {
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="extraction-model">Extraction & Generation Model</Label>
+            <Label htmlFor="extraction-model">Data Extraction Model</Label>
             <Select value={extractionModel} onValueChange={setExtractionModel} disabled={isBusy || isLoadingModels}>
               <SelectTrigger id="extraction-model" className="h-auto min-h-[60px]">
                 <SelectValue placeholder={isLoadingModels ? "Loading models..." : "Select extraction model"}>
@@ -182,7 +184,7 @@ export function LLMSettingsTab() {
                           )}
                         </div>
                         <div className="text-xs text-muted-foreground">
-                          For schema generation and data extraction
+                          For accurate document data extraction
                         </div>
                       </div>
                     ) : extractionModel;
@@ -192,7 +194,7 @@ export function LLMSettingsTab() {
               <SelectContent>
                 {backendModels.length > 0 ? (
                   backendModels
-                    .filter(model => model.supportedIn.includes('extraction') || model.supportedIn.includes('generation'))
+                    .filter(model => model.supportedIn.includes('extraction'))
                     .map((model) => {
                       const inputPrice = typeof model.pricing?.input === 'number' 
                         ? model.pricing.input 
@@ -229,12 +231,79 @@ export function LLMSettingsTab() {
               </SelectContent>
             </Select>
             <p className="text-xs text-muted-foreground">
-              Used for schema generation, prompt creation, and data extraction
+              Used for extracting data directly from PDF/document files
             </p>
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="agno-model">Agent (Agno) Model</Label>
+            <Label htmlFor="generation-model">Prompt Generation Model</Label>
+            <Select value={generationModel} onValueChange={setGenerationModel} disabled={isBusy || isLoadingModels}>
+              <SelectTrigger id="generation-model" className="h-auto min-h-[60px]">
+                <SelectValue placeholder={isLoadingModels ? "Loading models..." : "Select generation model"}>
+                  {generationModel && backendModels.length > 0 && (() => {
+                    const currentModel = backendModels.find(m => m.id === generationModel);
+                    return currentModel ? (
+                      <div className="flex flex-col items-start space-y-1">
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium">{currentModel.displayName}</span>
+                          {currentModel.capabilities?.thinking?.supported && (
+                            <Badge variant="secondary" className="text-xs">Thinking</Badge>
+                          )}
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                          For creating schemas and prompts
+                        </div>
+                      </div>
+                    ) : generationModel;
+                  })()}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                {backendModels.length > 0 ? (
+                  backendModels
+                    .filter(model => model.supportedIn.includes('generation'))
+                    .map((model) => {
+                      const inputPrice = typeof model.pricing?.input === 'number' 
+                        ? model.pricing.input 
+                        : (model.pricing?.input?.text || model.pricing?.input?.default || 'N/A');
+                      const outputPrice = typeof model.pricing?.output === 'number'
+                        ? model.pricing.output
+                        : (model.pricing?.output?.text || model.pricing?.output?.default || 'N/A');
+                      
+                      return (
+                        <SelectItem key={model.id} value={model.id}>
+                          <div className="flex flex-col space-y-1">
+                            <div className="flex items-center gap-2">
+                              <span className="font-medium">{model.displayName}</span>
+                              {model.capabilities?.thinking?.supported && (
+                                <Badge variant="secondary" className="text-xs">Thinking</Badge>
+                              )}
+                            </div>
+                            <div className="text-xs text-muted-foreground">
+                              <div>{model.description}</div>
+                              <div className="flex gap-3 mt-1">
+                                <span>Input: ${inputPrice}/1M</span>
+                                <span>Output: ${outputPrice}/1M</span>
+                              </div>
+                            </div>
+                          </div>
+                        </SelectItem>
+                      );
+                    })
+                ) : (
+                  <SelectItem value="loading" disabled>
+                    {modelLoadError ? "Error loading models" : "No models available"}
+                  </SelectItem>
+                )}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              Used for generating schemas, system prompts, and user templates
+            </p>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="agno-model">Data Transform Model</Label>
             <Select value={agnoModel} onValueChange={setAgnoModel} disabled={isBusy || isLoadingModels}>
               <SelectTrigger id="agno-model" className="h-auto min-h-[60px]">
                 <SelectValue placeholder={isLoadingModels ? "Loading models..." : "Select agent model"}>
@@ -249,7 +318,7 @@ export function LLMSettingsTab() {
                           )}
                         </div>
                         <div className="text-xs text-muted-foreground">
-                          For intelligent data enhancement and analysis
+                          For data transformation and Excel generation
                         </div>
                       </div>
                     ) : agnoModel;
@@ -296,7 +365,7 @@ export function LLMSettingsTab() {
               </SelectContent>
             </Select>
             <p className="text-xs text-muted-foreground">
-              Used for Agno AI processing and intelligent data enhancement
+              Used for transforming extracted data into Excel reports and analysis
             </p>
           </div>
 

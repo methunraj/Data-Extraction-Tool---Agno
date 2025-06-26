@@ -1,5 +1,7 @@
 # app/routers/extraction.py
-from fastapi import APIRouter, Depends, HTTPException
+import asyncio
+import logging
+from fastapi import APIRouter, Depends, HTTPException, Request
 from typing import List
 
 from ..core.dependencies import ModelServiceDep, APIKeyDep
@@ -13,6 +15,7 @@ from ..services.token_service import TokenService
 from ..services.cache_service import get_cache_service
 
 router = APIRouter(prefix="/api", tags=["extraction"])
+logger = logging.getLogger(__name__)
 
 def get_extraction_service(
     model_service: ModelServiceDep
@@ -31,6 +34,7 @@ def get_token_service(
 @router.post("/extract-data", response_model=ExtractDataResponse)
 async def extract_data(
     request: ExtractDataRequest,
+    fastapi_request: Request,
     api_key: APIKeyDep,
     extraction_service: ExtractionService = Depends(get_extraction_service)
 ) -> ExtractDataResponse:
@@ -46,22 +50,59 @@ async def extract_data(
     - Context caching for repeated extractions
     - Automatic retries with exponential backoff
     """
-    import logging
-    logger = logging.getLogger(__name__)
-    
     # Log the request for debugging
     logger.info(f"Extraction request - Model: {request.model_name}, Provider: {request.provider}")
     logger.info(f"Has document_text: {bool(request.document_text)}, Has document_file: {bool(request.document_file)}")
     logger.info(f"Schema length: {len(request.schema_definition)}, System prompt length: {len(request.system_prompt)}")
     
+    # Add client disconnection checking
+    async def check_disconnect():
+        while True:
+            if await fastapi_request.is_disconnected():
+                logger.warning("Client disconnected during extraction, cancelling operation.")
+                return True
+            await asyncio.sleep(0.1)
+    
+    disconnect_task = asyncio.create_task(check_disconnect())
+    
     try:
-        return await extraction_service.extract_data(request)
+        # Run extraction and disconnect check concurrently
+        extraction_task = asyncio.create_task(extraction_service.extract_data(request))
+        
+        done, pending = await asyncio.wait(
+            [extraction_task, disconnect_task],
+            return_when=asyncio.FIRST_COMPLETED
+        )
+        
+        # Cancel pending tasks
+        for task in pending:
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+        
+        # Check if extraction completed or was cancelled
+        if extraction_task in done:
+            return extraction_task.result()
+        else:
+            # Client disconnected
+            raise HTTPException(status_code=499, detail="Client disconnected")
+            
     except BaseAPIException:
         raise
     except Exception as e:
         # Log the actual error with full traceback
         logger.error(f"Extraction failed with error: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        # Ensure disconnect task is cancelled
+        if not disconnect_task.done():
+            disconnect_task.cancel()
+            try:
+                await disconnect_task
+            except asyncio.CancelledError:
+                pass
 
 @router.post("/estimate-tokens", response_model=EstimateTokensResponse)
 async def estimate_tokens(

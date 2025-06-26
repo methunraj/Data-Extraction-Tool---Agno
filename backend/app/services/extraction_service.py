@@ -199,17 +199,39 @@ class ExtractionService:
         # Add user content with document
         user_parts = []
         
-        # Add document content
-        if request.document_text:
-            user_parts.append({"text": f"Document to extract from:\n{request.document_text}"})
-        elif request.document_file:
-            # Handle file upload for multimodal input
-            file_data = await self._prepare_file_content(request.document_file)
-            user_parts.append(file_data)
-        
-        # Add user task description if provided
-        if request.user_task_description:
-            user_parts.append({"text": f"\nTask: {request.user_task_description}"})
+        # If we have a user_prompt_template, use it with substitutions
+        if request.user_prompt_template:
+            # Get document text for substitution
+            document_text = ""
+            if request.document_text:
+                document_text = request.document_text
+            elif request.document_file:
+                document_text = f"[File: {request.document_file.mime_type}]"
+            
+            # Substitute placeholders in the template
+            user_prompt = request.user_prompt_template
+            user_prompt = user_prompt.replace("{{document_text}}", document_text)
+            user_prompt = user_prompt.replace("{{schema}}", request.schema_definition)
+            
+            user_parts.append({"text": user_prompt})
+            
+            # Add file data if present (for multimodal)
+            if request.document_file:
+                file_data = await self._prepare_file_content(request.document_file)
+                user_parts.append(file_data)
+        else:
+            # Fallback to old behavior for backward compatibility
+            # Add document content
+            if request.document_text:
+                user_parts.append({"text": f"Document to extract from:\n{request.document_text}"})
+            elif request.document_file:
+                # Handle file upload for multimodal input
+                file_data = await self._prepare_file_content(request.document_file)
+                user_parts.append(file_data)
+            
+            # Add user task description if provided
+            if request.user_task_description:
+                user_parts.append({"text": f"\nTask: {request.user_task_description}"})
         
         # Add examples if provided
         if request.examples:

@@ -1,13 +1,13 @@
 # app/agents/qa_agent.py
 from agno.tools.python import PythonTools
-from .base import BaseAgent
+from ..base import BaseAgent
 
 
 class QualityAssuranceAgent(BaseAgent):
     """Quality assurance agent to verify output and code quality."""
     
-    def __init__(self, temp_dir: str = None):
-        super().__init__("qa", temp_dir)
+    def __init__(self, temp_dir: str = None, model_id=None):
+        super().__init__("qa", temp_dir, model_id=model_id)
     
     def get_instructions(self) -> list:
         """Get QA agent specific instructions."""

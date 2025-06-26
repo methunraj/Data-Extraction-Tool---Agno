@@ -1,20 +1,30 @@
 {
-  "version": "2.0.0",
-  "lastUpdated": "2025-01-24",
+  "version": "2.2.0",
+  "lastUpdated": "2025-06-26",
   "providers": {
     "googleAI": {
       "name": "Google AI",
       "sdkPackage": "google-genai",
-      "supportedFeatures": ["extraction", "generation", "agno", "thinking", "caching"]
+      "supportedFeatures": [
+        "extraction",
+        "generation",
+        "agno",
+        "thinking",
+        "caching"
+      ]
     }
   },
   "models": {
     "gemini-2.5-pro": {
       "id": "gemini-2.5-pro",
       "displayName": "Gemini 2.5 Pro",
-      "description": "State-of-the-art thinking model for complex reasoning",
+      "description": "Our most powerful thinking model with maximum response accuracy and state-of-the-art performance. Enhanced thinking and reasoning, multimodal understanding, advanced coding, and more.",
       "provider": "googleAI",
-      "supportedIn": ["extraction", "generation", "agno"],
+      "supportedIn": [
+        "extraction",
+        "generation",
+        "agno"
+      ],
       "capabilities": {
         "thinking": {
           "supported": true,
@@ -39,28 +49,34 @@
       "pricing": {
         "input": {
           "default": 1.25,
-          "above200k": 2.50,
-          "cached": 0.31,
-          "cachedAbove200k": 0.625
+          "above200k": 2.50
         },
         "output": {
-          "default": 10.00,
-          "above200k": 15.00,
+          "default": 10,
+          "above200k": 15,
           "includesThinking": true
         },
-        "cacheStorage": 4.50,
         "currency": "USD",
         "unit": "perMillionTokens"
       },
       "tokenCalculation": {
         "image": {
-          "small": {"maxDimension": 384, "tokens": 258},
+          "small": {
+            "maxDimension": 384,
+            "tokens": 258
+          },
           "tileSize": 768,
           "tokensPerTile": 258
         },
-        "document": {"tokensPerPage": 258},
-        "video": {"tokensPerSecond": 263},
-        "audio": {"tokensPerSecond": 32}
+        "document": {
+          "tokensPerPage": 258
+        },
+        "video": {
+          "tokensPerSecond": 263
+        },
+        "audio": {
+          "tokensPerSecond": 32
+        }
       },
       "status": "stable",
       "knowledgeCutoff": "2025-01"
@@ -68,9 +84,13 @@
     "gemini-2.5-flash": {
       "id": "gemini-2.5-flash",
       "displayName": "Gemini 2.5 Flash",
-      "description": "Best price-performance with thinking support",
+      "description": "Our best model in terms of price-performance, offering well-rounded capabilities. Adaptive thinking, cost efficiency.",
       "provider": "googleAI",
-      "supportedIn": ["extraction", "generation", "agno"],
+      "supportedIn": [
+        "extraction",
+        "generation",
+        "agno"
+      ],
       "capabilities": {
         "thinking": {
           "supported": true,
@@ -93,13 +113,139 @@
       },
       "pricing": {
         "input": {
-          "text": 0.30,
-          "audio": 1.00,
-          "cached": 0.075,
-          "cachedAudio": 0.25
+          "default": 0.30
         },
         "output": {
           "default": 2.50,
+          "includesThinking": true
+        },
+        "currency": "USD",
+        "unit": "perMillionTokens"
+      },
+      "tokenCalculation": {
+        "image": {
+          "small": {
+            "maxDimension": 384,
+            "tokens": 258
+          },
+          "tileSize": 768,
+          "tokensPerTile": 258
+        },
+        "document": {
+          "tokensPerPage": 258
+        },
+        "video": {
+          "tokensPerSecond": 263
+        },
+        "audio": {
+          "tokensPerSecond": 32
+        }
+      },
+      "status": "stable",
+      "knowledgeCutoff": "2025-01"
+    },
+    "gemini-2.0-flash": {
+      "id": "gemini-2.0-flash",
+      "displayName": "Gemini 2.0 Flash",
+      "description": "Next generation features, speed, and realtime streaming.",
+      "provider": "googleAI",
+      "supportedIn": [
+        "extraction",
+        "generation",
+        "agno"
+      ],
+      "capabilities": {
+        "thinking": {
+          "supported": false
+        },
+        "vision": true,
+        "audio": true,
+        "video": true,
+        "contextCaching": true,
+        "functionCalling": true,
+        "structuredOutputs": true
+      },
+      "limits": {
+        "maxInputTokens": 1048576,
+        "maxOutputTokens": 8192,
+        "contextWindow": 1048576
+      },
+      "pricing": {
+        "input": {
+          "default": 0.10
+        },
+        "output": {
+          "default": 0.40
+        },
+        "currency": "USD",
+        "unit": "perMillionTokens"
+      },
+      "tokenCalculation": {
+        "image": {
+          "small": {
+            "maxDimension": 384,
+            "tokens": 258
+          },
+          "tileSize": 768,
+          "tokensPerTile": 258
+        },
+        "document": {
+          "tokensPerPage": 258
+        },
+        "video": {
+          "tokensPerSecond": 263
+        },
+        "audio": {
+          "tokensPerSecond": 32
+        }
+      },
+      "status": "stable",
+      "knowledgeCutoff": "2024-06"
+    },
+    "gemini-2.5-flash-lite-preview-06-17": {
+      "id": "gemini-2.5-flash-lite-preview-06-17",
+      "displayName": "Gemini 2.5 Flash Lite (Preview)",
+      "description": "Most cost-efficient and fastest 2.5 model, optimized for low latency and high-volume tasks like classification, translation, and intelligent routing.",
+      "provider": "googleAI",
+      "supportedIn": [
+        "extraction",
+        "generation",
+        "agno"
+      ],
+      "capabilities": {
+        "thinking": {
+          "supported": true,
+          "defaultBudget": 0,
+          "minBudget": 0,
+          "maxBudget": 24576,
+          "canDisable": false
+        },
+        "vision": true,
+        "audio": true,
+        "video": true,
+        "pdf": true,
+        "contextCaching": true,
+        "functionCalling": true,
+        "structuredOutputs": true
+      },
+      "limits": {
+        "maxInputTokens": 1048576,
+        "maxOutputTokens": 65536,
+        "contextWindow": 1048576
+      },
+      "pricing": {
+        "input": {
+          "text": 0.10,
+          "image": 0.10,
+          "video": 0.10,
+          "audio": 0.50,
+          "cachedText": 0.025,
+          "cachedImage": 0.025,
+          "cachedVideo": 0.025,
+          "cachedAudio": 0.125
+        },
+        "output": {
+          "default": 0.40,
           "includesThinking": true
         },
         "cacheStorage": 1.00,
@@ -108,207 +254,25 @@
       },
       "tokenCalculation": {
         "image": {
-          "small": {"maxDimension": 384, "tokens": 258},
+          "small": {
+            "maxDimension": 384,
+            "tokens": 258
+          },
           "tileSize": 768,
           "tokensPerTile": 258
         },
-        "document": {"tokensPerPage": 258},
-        "video": {"tokensPerSecond": 263},
-        "audio": {"tokensPerSecond": 32}
-      },
-      "status": "stable"
-    },
-    "gemini-2.5-flash-preview-05-20": {
-      "id": "gemini-2.5-flash-preview-05-20",
-      "displayName": "Gemini 2.5 Flash Preview (May 20)",
-      "description": "Preview version of Gemini 2.5 Flash",
-      "provider": "googleAI",
-      "supportedIn": ["extraction", "generation", "agno"],
-      "capabilities": {
-        "thinking": {
-          "supported": true,
-          "defaultBudget": -1,
-          "minBudget": 0,
-          "maxBudget": 24576,
-          "canDisable": true
+        "document": {
+          "tokensPerPage": 258
         },
-        "vision": true,
-        "audio": true,
-        "video": true,
-        "contextCaching": true,
-        "functionCalling": true,
-        "structuredOutputs": true
-      },
-      "limits": {
-        "maxInputTokens": 1048576,
-        "maxOutputTokens": 65536,
-        "contextWindow": 1048576
-      },
-      "pricing": {
-        "input": {
-          "text": 0.30,
-          "audio": 1.00,
-          "cached": 0.075,
-          "cachedAudio": 0.25
+        "video": {
+          "tokensPerSecond": 263
         },
-        "output": {
-          "default": 2.50,
-          "includesThinking": true
-        },
-        "cacheStorage": 1.00,
-        "currency": "USD",
-        "unit": "perMillionTokens"
+        "audio": {
+          "tokensPerSecond": 32
+        }
       },
-      "status": "preview"
-    },
-    "gemini-2.0-flash": {
-      "id": "gemini-2.0-flash",
-      "displayName": "Gemini 2.0 Flash",
-      "description": "Next-gen speed with experimental thinking",
-      "provider": "googleAI",
-      "supportedIn": ["extraction", "agno"],
-      "capabilities": {
-        "thinking": {
-          "supported": true,
-          "status": "experimental",
-          "defaultBudget": 8000,
-          "minBudget": 0,
-          "maxBudget": 32768,
-          "canDisable": true
-        },
-        "vision": true,
-        "audio": true,
-        "video": true,
-        "liveAPI": true,
-        "functionCalling": true,
-        "structuredOutputs": true
-      },
-      "limits": {
-        "maxInputTokens": 1048576,
-        "maxOutputTokens": 65536,
-        "contextWindow": 1048576
-      },
-      "pricing": {
-        "input": {
-          "text": 0.10,
-          "audio": 0.70,
-          "cached": 0.025
-        },
-        "output": {
-          "default": 0.40
-        },
-        "currency": "USD",
-        "unit": "perMillionTokens"
-      },
-      "status": "stable"
-    },
-    "gemini-2.0-flash-001": {
-      "id": "gemini-2.0-flash-001",
-      "displayName": "Gemini 2.0 Flash 001",
-      "description": "Stable version of Gemini 2.0 Flash",
-      "provider": "googleAI",
-      "supportedIn": ["extraction", "generation", "agno"],
-      "capabilities": {
-        "thinking": {
-          "supported": true,
-          "status": "experimental",
-          "defaultBudget": 8000,
-          "minBudget": 0,
-          "maxBudget": 32768,
-          "canDisable": true
-        },
-        "vision": true,
-        "audio": true,
-        "video": true,
-        "functionCalling": true,
-        "structuredOutputs": true
-      },
-      "limits": {
-        "maxInputTokens": 1048576,
-        "maxOutputTokens": 65536,
-        "contextWindow": 1048576
-      },
-      "pricing": {
-        "input": {
-          "text": 0.10,
-          "audio": 0.70,
-          "cached": 0.025
-        },
-        "output": {
-          "default": 0.40
-        },
-        "currency": "USD",
-        "unit": "perMillionTokens"
-      },
-      "status": "stable"
-    },
-    "gemini-1.5-pro": {
-      "id": "gemini-1.5-pro",
-      "displayName": "Gemini 1.5 Pro",
-      "description": "Previous generation pro model",
-      "provider": "googleAI",
-      "supportedIn": ["extraction", "generation", "agno"],
-      "capabilities": {
-        "vision": true,
-        "audio": true,
-        "video": true,
-        "contextCaching": true,
-        "functionCalling": true,
-        "structuredOutputs": true
-      },
-      "limits": {
-        "maxInputTokens": 1048576,
-        "maxOutputTokens": 8192,
-        "contextWindow": 2097152
-      },
-      "pricing": {
-        "input": {
-          "default": 3.50,
-          "cached": 0.875
-        },
-        "output": {
-          "default": 10.50
-        },
-        "cacheStorage": 1.00,
-        "currency": "USD",
-        "unit": "perMillionTokens"
-      },
-      "status": "stable",
-      "knowledgeCutoff": "2024-05"
-    },
-    "gemini-1.5-flash": {
-      "id": "gemini-1.5-flash",
-      "displayName": "Gemini 1.5 Flash",
-      "description": "Previous generation fast model",
-      "provider": "googleAI",
-      "supportedIn": ["extraction", "generation", "agno"],
-      "capabilities": {
-        "vision": true,
-        "audio": true,
-        "video": true,
-        "contextCaching": true,
-        "functionCalling": true,
-        "structuredOutputs": true
-      },
-      "limits": {
-        "maxInputTokens": 1048576,
-        "maxOutputTokens": 8192,
-        "contextWindow": 1048576
-      },
-      "pricing": {
-        "input": {
-          "default": 0.35,
-          "cached": 0.0875
-        },
-        "output": {
-          "default": 1.05
-        },
-        "cacheStorage": 1.00,
-        "currency": "USD",
-        "unit": "perMillionTokens"
-      },
-      "status": "stable",
-      "knowledgeCutoff": "2024-05"
+      "status": "preview",
+      "knowledgeCutoff": "2025-01"
     }
   }
 }

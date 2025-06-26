@@ -9,37 +9,27 @@ import subprocess
 from pathlib import Path
 
 def check_env_file():
-    """Check if .env file exists and has required variables"""
-    # Use the directory where the script is located
+    """Check if global .env file exists and has required variables"""
+    # Look for global .env file in project root
     script_dir = Path(__file__).parent.absolute()
-    env_file = script_dir / ".env"
-    if not env_file.exists():
-        print("⚠️  .env file not found!")
-        print("📋 Creating .env from .env.example...")
-        
-        example_file = script_dir / ".env.example"
-        if example_file.exists():
-            # Copy example to .env
-            with open(example_file, 'r') as src, open(env_file, 'w') as dst:
-                content = src.read()
-                dst.write(content)
-            print("✅ Created .env file from .env.example")
-            print("🔧 Please edit .env and add your GOOGLE_API_KEY")
-            return False
-        else:
-            print("❌ .env.example file not found!")
-            return False
+    global_env_file = script_dir.parent / ".env"
+    
+    if not global_env_file.exists():
+        print("⚠️  Global .env file not found!")
+        print("🔧 Please run ./setup-env.sh from the project root")
+        print(f"📍 Expected location: {global_env_file}")
+        return False
     
     # Check if GOOGLE_API_KEY is set
     from dotenv import load_dotenv
-    load_dotenv(dotenv_path=env_file)
+    load_dotenv(dotenv_path=global_env_file)
     
     if not os.getenv("GOOGLE_API_KEY"):
-        print("❌ GOOGLE_API_KEY not set in .env file!")
-        print("🔧 Please add your Google API key to the .env file")
+        print("❌ GOOGLE_API_KEY not set in global .env file!")
+        print("🔧 Please add your Google API key to the global .env file")
         return False
     
-    print("✅ Environment configuration looks good")
+    print("✅ Global environment configuration looks good")
     return True
 
 def check_dependencies():

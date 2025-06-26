@@ -7,14 +7,14 @@ import { LLMProvider } from './LLMContext';
 
 export function AppProviders({ children }: { children: React.ReactNode }) {
   return (
-    <ConfigurationProvider>
-      <LLMProvider>
+    <LLMProvider>
+      <ConfigurationProvider>
         <FileProvider>
           <JobProvider>
             {children}
           </JobProvider>
         </FileProvider>
-      </LLMProvider>
-    </ConfigurationProvider>
+      </ConfigurationProvider>
+    </LLMProvider>
   );
 }

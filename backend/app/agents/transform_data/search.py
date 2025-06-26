@@ -1,6 +1,6 @@
 # app/agents/search_agent.py
 from agno.models.google import Gemini
-from .base import BaseAgent
+from ..base import BaseAgent
 
 
 class SearchAgent(BaseAgent):
@@ -9,8 +9,8 @@ class SearchAgent(BaseAgent):
     This agent has native search and grounding enabled but no external tools.
     """
     
-    def __init__(self, temp_dir: str = None):
-        super().__init__("search", temp_dir)
+    def __init__(self, temp_dir: str = None, model_id=None):
+        super().__init__("search", temp_dir, model_id=model_id)
     
     def get_instructions(self) -> list:
         """Get search agent specific instructions."""

@@ -1,12 +1,12 @@
 # app/agents/strategist_agent.py
-from .base import BaseAgent
+from ..base import BaseAgent
 
 
 class StrategistAgent(BaseAgent):
     """Strategist agent to break down tasks and create execution plans."""
     
-    def __init__(self, temp_dir: str = None):
-        super().__init__("strategist", temp_dir)
+    def __init__(self, temp_dir: str = None, model_id=None):
+        super().__init__("strategist", temp_dir, model_id=model_id)
     
     def get_instructions(self) -> list:
         """Get strategist agent specific instructions."""

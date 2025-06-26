@@ -3,7 +3,8 @@ from typing import Annotated
 from fastapi import Depends, HTTPException, Header
 from .config import settings
 from .google_client import GoogleGenAIClient
-from ..services.model_service import get_model_service, ModelService
+from ..utils.model_utils import get_model_service
+from ..services.model_service import ModelService
 import logging
 
 logger = logging.getLogger(__name__)

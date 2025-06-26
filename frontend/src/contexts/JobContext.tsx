@@ -4,10 +4,7 @@ import { createContext, useContext, useState, useMemo, useCallback, useEffect } 
 import type { JobResult, AppFile, AppFileWithRetry } from '@/types';
 import { useToast } from '@/hooks/use-toast';
 import { backendAIService } from '@/services/backend-api';
-import { visualizeThinking, type VisualizeThinkingInput, type VisualizeThinkingStreamChunk, type VisualizeThinkingOutput } from '@/ai/flows/visualize-thinking';
-import * as CachingService from '@/ai/caching-service';
 import { v4 as uuidv4 } from 'uuid';
-import type { CachePricing } from '@/ai/caching-service';
 import { useLLMConfig } from '@/contexts/LLMContext';
 
 export type ThinkingDetailLevel = 'brief' | 'standard' | 'detailed'; 
@@ -41,11 +38,6 @@ interface JobContextType {
   // Caching related properties
   useCaching: boolean;
   setUseCaching: Dispatch<SetStateAction<boolean>>;
-  cacheStats: CachingService.CacheUsageStats | null;
-  cachePricePerMillionTokens: number;
-  setCachePricePerMillionTokens: Dispatch<SetStateAction<number>>;
-  cachePricing: CachePricing;
-  updateCachePricing: (pricing: Partial<CachePricing>) => Promise<void>;
 
   startProcessingJobQueue: (
     filesToProcess: AppFile[], 
@@ -106,19 +98,10 @@ export function JobProvider({ children }: { children: React.ReactNode }) {
   
   // Add caching state
   const [useCaching, setUseCaching] = useState<boolean>(false);
-  const [cachePricePerMillionTokens, setCachePricePerMillionTokens] = useState<number>(0.15); // Default price
   const [currentCacheId, setCurrentCacheId] = useState<string | undefined>(undefined);
-  const [loadedCacheStats, setLoadedCacheStats] = useState<CachingService.CacheUsageStats | null>(null);
   
   // Get backend models for pricing calculation
   const { backendModels } = useLLMConfig();
-
-  // Add cache pricing state
-  const [cachePricing, setCachePricing] = useState<CachePricing>({
-    cacheStoragePricePerMillionTokensPerHour: { default: 1.00 },
-    cacheCreationPricePerMillionTokens: { default: 0.025 },
-    inputTokenPricePerMillionTokens: { default: 0.15 }
-  });
 
   const { toast } = useToast();
 
@@ -152,85 +135,6 @@ export function JobProvider({ children }: { children: React.ReactNode }) {
     setJobQueue([]); 
   }, []);
 
-  // Load cache stats when needed
-  useEffect(() => {
-    let isMounted = true;
-    
-    const loadStats = async () => {
-      try {
-        const stats = await CachingService.getCacheStats();
-        if (isMounted) {
-          setLoadedCacheStats(stats);
-        }
-      } catch (err) {
-        console.error("Failed to load cache stats:", err);
-      }
-    };
-    
-    loadStats();
-    
-    return () => {
-      isMounted = false;
-    };
-  }, [jobResults.length, isProcessingQueue]);
-  
-  // Use the loaded stats for the UI
-  const cacheStats = loadedCacheStats;
-
-  // Load cache pricing when needed
-  useEffect(() => {
-    let isMounted = true;
-    
-    const loadPricing = async () => {
-      try {
-        // Get the current pricing using the async getter function
-        const pricing = await CachingService.getCachePricing();
-        if (isMounted && pricing) {
-          // Set the cache pricing state
-          setCachePricing(pricing);
-          
-          // Update the local price state to match the global configuration
-          const price = typeof pricing.inputTokenPricePerMillionTokens === 'number' 
-            ? pricing.inputTokenPricePerMillionTokens 
-            : (pricing.inputTokenPricePerMillionTokens as Record<string, number>).default || 0.15;
-          setCachePricePerMillionTokens(price);
-        }
-      } catch (err) {
-        console.error("Failed to load cache pricing:", err);
-      }
-    };
-    
-    loadPricing();
-    
-    return () => {
-      isMounted = false;
-    };
-  }, []);
-
-  // Function to update cache pricing
-  const updateCachePricing = useCallback(async (pricing: Partial<CachePricing>) => {
-    try {
-      const updatedPricing = await CachingService.updateCachePricing(pricing);
-      setCachePricing(updatedPricing);
-      
-      // If input token price is being updated, update our local state too
-      if (pricing.inputTokenPricePerMillionTokens !== undefined) {
-        const price = typeof pricing.inputTokenPricePerMillionTokens === 'number' 
-          ? pricing.inputTokenPricePerMillionTokens 
-          : (pricing.inputTokenPricePerMillionTokens as Record<string, number>).default || 0.15;
-        setCachePricePerMillionTokens(price);
-      }
-      
-      console.log("[Job Context] Updated cache pricing configuration");
-    } catch (err) {
-      console.error("Error updating cache pricing:", err);
-      toast({ 
-        title: "Cache Pricing Update Failed", 
-        description: "Could not update cache pricing configuration. See console for details.", 
-        variant: "destructive" 
-      });
-    }
-  }, [toast]);
 
   const startProcessingJobQueue = useCallback(async (
     filesToProcess: AppFile[], 
@@ -255,7 +159,6 @@ export function JobProvider({ children }: { children: React.ReactNode }) {
     console.log("Thinking Detail Level:", thinkingDetailLevel);
     console.log("Agno Processing Enabled:", useAgnoProcessing);
     console.log("Caching Enabled:", useCaching);
-    console.log("Cache Price Per Million Tokens:", `$${cachePricePerMillionTokens.toFixed(2)}`);
     console.log("Schema Length:", schemaJson.length);
     console.log("System Prompt Length:", systemPrompt.length);
     console.log("User Prompt Length:", userPromptTemplate.length);
@@ -315,7 +218,8 @@ export function JobProvider({ children }: { children: React.ReactNode }) {
           },
           schemaDefinition: schemaJson,
           systemPrompt: systemPrompt,
-          userTaskDescription: userPromptTemplate,
+          userPromptTemplate: userPromptTemplate, // ✅ Use new template system
+          userTaskDescription: undefined, // Keep for backward compatibility
           examples: examples?.map(ex => ({
             input: ex.input,
             output: ex.output
@@ -330,7 +234,11 @@ export function JobProvider({ children }: { children: React.ReactNode }) {
         };
         
         setCurrentTask(`Extracting data from ${fileJob.name}...`);
-        const extractionOutput = await backendAIService.extractData(extractionInput);
+        
+        // Create AbortController for this extraction
+        const abortController = new AbortController();
+        
+        const extractionOutput = await backendAIService.extractData(extractionInput, abortController.signal);
         
         console.log(`\n=== EXTRACTION OUTPUT DEBUG ===`);
         console.log(`File: ${fileJob.name}`);
@@ -362,54 +270,16 @@ export function JobProvider({ children }: { children: React.ReactNode }) {
           console.log(`File: ${fileJob.name}`);
           console.log(`Cache Hit: ${cacheHit ? 'Yes' : 'No'}`);
           console.log(`Cache ID: ${currentCacheId || 'N/A'}`);
-          
-          if (cacheHit && cachedTokens > 0) {
-            const tokensSaved = cachedTokens;
-            const savingsAmount = (tokensSaved / 1000000) * cachePricePerMillionTokens;
-            console.log(`Cached Tokens: ${cachedTokens.toLocaleString()}`);
-            console.log(`Estimated Savings: $${savingsAmount.toFixed(6)}`);
-          }
-          
+          console.log(`Cached Tokens: ${cachedTokens.toLocaleString()}`);
           console.log(`=====================\n`);
         }
 
         if (thinkingEnabled && extractionOutput.thinkingText) {
-          setCurrentTask(`Visualizing thinking for ${fileJob.name}...`);
-          let accumulatedThinkingForFile = "";
+          setCurrentTask(`Processing thinking for ${fileJob.name}...`);
           
           // Backend provides thinking text directly if available
-          accumulatedThinkingForFile = extractionOutput.thinkingText;
-          
-          const thinkingQuery = `Task: ${userPromptTemplate.substring(0,150)}...\nSchema: ${schemaJson.substring(0, 150)}...\nDocument: ${fileJob.name} (${fileJob.type})`;
-          const explanationBudgetForViz = mapDetailLevelToNumericBudget(thinkingDetailLevel);
-          
-          const visualizeInput: VisualizeThinkingInput = { 
-            query: thinkingQuery, 
-            explanationDetailBudget: explanationBudgetForViz,
-            llmProvider: llmProvider, 
-            modelName: extractionModel, // Use extraction model for thinking visualization
-            temperature: llmTemperature,
-          };
-
-          try {
-            // Skip streaming callback for now to avoid type errors
-            const flowResultPromise = visualizeThinking(visualizeInput);
-            
-            // Handle the final result only
-            const finalVisualizationOutput = await flowResultPromise;
-            finalThinkingProcess = finalVisualizationOutput.thinkingProcess || "";
-
-            // Set the thinking stream once at the end
-            setCurrentThinkingStream(finalVisualizationOutput.thinkingProcess || "");
-            accumulatedThinkingForFile = finalVisualizationOutput.thinkingProcess || "";
-
-          } catch (visError) {
-            console.error(`Thinking visualization error for ${fileJob.name}:`, visError);
-            const visErrorMsg = visError instanceof Error ? visError.message : "Unknown visualization error.";
-            const errorText = `\n\n--- Error during thinking visualization: ${visErrorMsg} ---`;
-            setCurrentThinkingStream(prev => prev + errorText);
-            finalThinkingProcess = accumulatedThinkingForFile + errorText;
-          }
+          finalThinkingProcess = extractionOutput.thinkingText;
+          setCurrentThinkingStream(extractionOutput.thinkingText);
         }
         
         // Agno AI Processing (if enabled and extraction was successful)
@@ -417,38 +287,24 @@ export function JobProvider({ children }: { children: React.ReactNode }) {
         console.log(`useAgnoProcessing: ${useAgnoProcessing}`);
         console.log(`extractedDataJson: ${extractedDataJson ? 'Has data' : 'NULL/UNDEFINED'}`);
         console.log(`extractedDataJson length: ${extractedDataJson?.length || 0}`);
+        console.log(`llmApiKey: ${llmApiKey ? 'Provided' : 'NULL/UNDEFINED'}`);
+        console.log(`llmProvider: ${llmProvider}`);
+        console.log(`agnoModel: ${agnoModel}`);
         console.log(`============================\n`);
         
         if (useAgnoProcessing && extractedDataJson) {
           try {
             setCurrentTask(`Enhancing data with Agno AI for ${fileJob.name}...`);
             
-            // Create AbortController for 20 minute timeout
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 20 * 60 * 1000); // 20 minutes
-            
-            const agnoResponse = await fetch('/api/agno-process', {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify({
-                extractedData: extractedDataJson,
-                fileName: fileJob.name,
-                llmProvider: llmProvider,
-                model: agnoModel, // Use agno model for Agno AI processing
-                apiKey: llmApiKey,
-                temperature: llmTemperature
-              }),
-              signal: controller.signal,
+            // Use BackendAIService for proper API calls to backend:8000
+            const agnoResult = await backendAIService.processWithAgno({
+              extractedData: extractedDataJson,
+              fileName: fileJob.name.replace(/\.[^/.]+$/, '.xlsx'),
+              sessionId: `session_${uuidv4()}`,
+              userId: `user_${uuidv4()}`
             });
             
-            // Clear timeout if request completes before timeout
-            clearTimeout(timeoutId);
-            
-            if (agnoResponse.ok) {
-              const agnoResult = await agnoResponse.json();
-              if (agnoResult.success && agnoResult.download_url) {
+            if (agnoResult.success && agnoResult.download_url) {
                 // Add Agno token usage to existing tokens
                 if (agnoResult.token_usage) {
                   tokens.agnoTokens = agnoResult.token_usage;
@@ -476,14 +332,29 @@ export function JobProvider({ children }: { children: React.ReactNode }) {
                 }
                 console.log(`===============================\n`);
                 
+                toast({ 
+                  title: "Transform Complete", 
+                  description: `Successfully transformed ${fileJob.name} to Excel and downloaded.`,
+                  variant: "default"
+                });
+                
                 // Note: The Python backend automatically cleans up files after 1 hour
                 // No manual cleanup needed
-              }
             } else {
-              console.warn(`Agno processing failed for ${fileJob.name}:`, await agnoResponse.text());
+              console.warn(`Agno processing failed for ${fileJob.name}: No download URL provided`);
+              toast({ 
+                title: "Transform Failed", 
+                description: `Agno transform failed for ${fileJob.name}. Using extraction results only.`,
+                variant: "destructive"
+              });
             }
           } catch (agnoError) {
             console.error(`Agno processing error for ${fileJob.name}:`, agnoError);
+            toast({ 
+              title: "Transform Error", 
+              description: `Agno transform error for ${fileJob.name}: ${agnoError instanceof Error ? agnoError.message : 'Unknown error'}`,
+              variant: "destructive"
+            });
             // Continue with original extracted data if Agno processing fails
           }
         }
@@ -606,9 +477,6 @@ export function JobProvider({ children }: { children: React.ReactNode }) {
     currentFileProcessing, currentThinkingStream,
     startProcessingJobQueue, cancelProcessingJobQueue,
     useCaching, setUseCaching,
-    cacheStats,
-    cachePricePerMillionTokens, setCachePricePerMillionTokens,
-    cachePricing, updateCachePricing,
   }), [
     jobQueue, jobResults, clearJobResults,
     isProcessingQueue,
@@ -619,10 +487,7 @@ export function JobProvider({ children }: { children: React.ReactNode }) {
     processedFilesCount, failedFilesCount, totalFilesToProcess,
     currentFileProcessing, currentThinkingStream,
     startProcessingJobQueue, cancelProcessingJobQueue,
-    useCaching, setUseCaching, 
-    cacheStats,
-    cachePricePerMillionTokens, setCachePricePerMillionTokens,
-    cachePricing, updateCachePricing,
+    useCaching, setUseCaching,
   ]);
 
   return <JobContext.Provider value={value}>{children}</JobContext.Provider>;

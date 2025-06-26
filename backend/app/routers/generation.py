@@ -1,5 +1,7 @@
 # app/routers/generation.py
-from fastapi import APIRouter, Depends, HTTPException
+import asyncio
+import logging
+from fastapi import APIRouter, Depends, HTTPException, Request
 
 from ..core.dependencies import ModelServiceDep, APIKeyDep
 from ..core.exceptions import BaseAPIException
@@ -12,6 +14,7 @@ from ..schemas.generation import (
 from ..services.generation_service import GenerationService
 
 router = APIRouter(prefix="/api", tags=["generation"])
+logger = logging.getLogger(__name__)
 
 def get_generation_service(
     model_service: ModelServiceDep
@@ -22,6 +25,7 @@ def get_generation_service(
 @router.post("/generate-unified-config", response_model=GenerateConfigResponse)
 async def generate_unified_config(
     request: GenerateConfigRequest,
+    fastapi_request: Request,
     api_key: APIKeyDep,
     generation_service: GenerationService = Depends(get_generation_service)
 ) -> GenerateConfigResponse:
@@ -38,12 +42,53 @@ async def generate_unified_config(
     
     The generated configuration can be directly used with the /extract-data endpoint.
     """
+    # Add client disconnection checking
+    async def check_disconnect():
+        while True:
+            if await fastapi_request.is_disconnected():
+                logger.warning("Client disconnected during generation, cancelling operation.")
+                return True
+            await asyncio.sleep(0.1)
+    
+    disconnect_task = asyncio.create_task(check_disconnect())
+    
     try:
-        return await generation_service.generate_unified_config(request)
+        # Run generation and disconnect check concurrently
+        generation_task = asyncio.create_task(generation_service.generate_unified_config(request))
+        
+        done, pending = await asyncio.wait(
+            [generation_task, disconnect_task],
+            return_when=asyncio.FIRST_COMPLETED
+        )
+        
+        # Cancel pending tasks
+        for task in pending:
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+        
+        # Check if generation completed or was cancelled
+        if generation_task in done:
+            return generation_task.result()
+        else:
+            # Client disconnected
+            raise HTTPException(status_code=499, detail="Client disconnected")
+            
     except BaseAPIException:
         raise
     except Exception as e:
+        logger.error(f"Generation failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        # Ensure disconnect task is cancelled
+        if not disconnect_task.done():
+            disconnect_task.cancel()
+            try:
+                await disconnect_task
+            except asyncio.CancelledError:
+                pass
 
 @router.post("/generate-schema", response_model=GenerateSchemaResponse)
 async def generate_schema(

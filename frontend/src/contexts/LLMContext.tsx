@@ -64,6 +64,8 @@ interface LLMContextType {
   // New fields for backend integration
   extractionModel: string;
   setExtractionModel: (model: string) => void;
+  generationModel: string;
+  setGenerationModel: (model: string) => void;
   agnoModel: string;
   setAgnoModel: (model: string) => void;
   backendModels: ModelInfo[];
@@ -96,6 +98,7 @@ export function LLMProvider({ children }: { children: React.ReactNode }) {
   
   // New backend-related state
   const [extractionModel, _setInternalExtractionModel] = useState('');
+  const [generationModel, _setInternalGenerationModel] = useState('');
   const [agnoModel, _setInternalAgnoModel] = useState('');
   const [backendModels, setBackendModels] = useState<ModelInfo[]>([]);
   const [isLoadingModels, setIsLoadingModels] = useState(false);
@@ -121,23 +124,38 @@ export function LLMProvider({ children }: { children: React.ReactNode }) {
       
       setAvailableModels(modelsByProvider);
       
-      // Auto-select extraction and agno models if not set
+      // Auto-select extraction, generation, and agno models if not set
       const extractionModels = models.filter(m => m.supportedIn.includes('extraction'));
+      const generationModels = models.filter(m => m.supportedIn.includes('generation'));
       const agnoModels = models.filter(m => m.supportedIn.includes('agno'));
       
-      if (!extractionModel && extractionModels.length > 0) {
-        const savedExtractionModel = localStorage.getItem('intelliextract_extractionModel') || extractionModels[0].id;
-        _setInternalExtractionModel(savedExtractionModel);
+      // Get current values from localStorage to avoid dependency issues
+      const currentExtractionModel = localStorage.getItem('intelliextract_extractionModel');
+      const currentGenerationModel = localStorage.getItem('intelliextract_generationModel');
+      const currentAgnoModel = localStorage.getItem('intelliextract_agnoModel');
+      
+      if (!currentExtractionModel && extractionModels.length > 0) {
+        const defaultModel = extractionModels[0].id;
+        _setInternalExtractionModel(defaultModel);
+        localStorage.setItem('intelliextract_extractionModel', defaultModel);
       }
       
-      if (!agnoModel && agnoModels.length > 0) {
-        const savedAgnoModel = localStorage.getItem('intelliextract_agnoModel') || agnoModels[0].id;
-        _setInternalAgnoModel(savedAgnoModel);
+      if (!currentGenerationModel && generationModels.length > 0) {
+        const defaultModel = generationModels[0].id;
+        _setInternalGenerationModel(defaultModel);
+        localStorage.setItem('intelliextract_generationModel', defaultModel);
+      }
+      
+      if (!currentAgnoModel && agnoModels.length > 0) {
+        const defaultModel = agnoModels[0].id;
+        _setInternalAgnoModel(defaultModel);
+        localStorage.setItem('intelliextract_agnoModel', defaultModel);
       }
       
       // Update pricing for current model if available from backend
-      if (model) {
-        const modelInfo = models.find(m => m.id === model);
+      const currentModel = localStorage.getItem('intelliextract_model_googleAI');
+      if (currentModel) {
+        const modelInfo = models.find(m => m.id === currentModel);
         if (modelInfo && modelInfo.pricing) {
           const inputPrice = typeof modelInfo.pricing.input === 'number' 
             ? modelInfo.pricing.input 
@@ -157,7 +175,7 @@ export function LLMProvider({ children }: { children: React.ReactNode }) {
     } finally {
       setIsLoadingModels(false);
     }
-  }, [model, extractionModel, agnoModel]);
+  }, []); // Remove dependencies to prevent infinite loop
 
   // Effect for initializing the provider and API key from localStorage ONCE on mount
   useEffect(() => {
@@ -169,16 +187,18 @@ export function LLMProvider({ children }: { children: React.ReactNode }) {
       const lastActiveModel = localStorage.getItem('intelliextract_model_googleAI') || defaultAvailableModels['googleAI']?.[0] || '';
       _setInternalModel(lastActiveModel);
       
-      // Load extraction and agno models
+      // Load extraction, generation, and agno models
       const savedExtractionModel = localStorage.getItem('intelliextract_extractionModel') || '';
+      const savedGenerationModel = localStorage.getItem('intelliextract_generationModel') || '';
       const savedAgnoModel = localStorage.getItem('intelliextract_agnoModel') || '';
       _setInternalExtractionModel(savedExtractionModel);
+      _setInternalGenerationModel(savedGenerationModel);
       _setInternalAgnoModel(savedAgnoModel);
       
       // Load models from backend
       refreshModels();
     }
-  }, [refreshModels]);
+  }, []); // Remove refreshModels dependency to prevent infinite loop
 
   // Effect for loading model-specific settings (prices, temp, budget) when 'model' state changes
   useEffect(() => {
@@ -301,6 +321,30 @@ export function LLMProvider({ children }: { children: React.ReactNode }) {
     }
   }, [backendModels]);
   
+  const setGenerationModel = useCallback((newModel: string) => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('intelliextract_generationModel', newModel);
+    }
+    _setInternalGenerationModel(newModel);
+    
+    // Update pricing from backend model info
+    const modelInfo = backendModels.find(m => m.id === newModel);
+    if (modelInfo && modelInfo.pricing) {
+      const inputPrice = typeof modelInfo.pricing.input === 'number' 
+        ? modelInfo.pricing.input 
+        : modelInfo.pricing.input.default;
+      const outputPrice = typeof modelInfo.pricing.output === 'number'
+        ? modelInfo.pricing.output
+        : modelInfo.pricing.output.default;
+      
+      // Store these prices for the generation model
+      if (typeof window !== 'undefined') {
+        localStorage.setItem(`intelliextract_priceInput_googleAI_${newModel}`, String(inputPrice));
+        localStorage.setItem(`intelliextract_priceOutput_googleAI_${newModel}`, String(outputPrice));
+      }
+    }
+  }, [backendModels]);
+  
   const setAgnoModel = useCallback((newModel: string) => {
     if (typeof window !== 'undefined') {
       localStorage.setItem('intelliextract_agnoModel', newModel);
@@ -320,6 +364,7 @@ export function LLMProvider({ children }: { children: React.ReactNode }) {
     temperature, setTemperature,
     // New backend fields
     extractionModel, setExtractionModel,
+    generationModel, setGenerationModel,
     agnoModel, setAgnoModel,
     backendModels,
     refreshModels,
@@ -336,6 +381,7 @@ export function LLMProvider({ children }: { children: React.ReactNode }) {
     pricePerMillionOutputTokens, setPricePerMillionOutputTokens,
     temperature, setTemperature,
     extractionModel, setExtractionModel,
+    generationModel, setGenerationModel,
     agnoModel, setAgnoModel,
     backendModels,
     refreshModels,

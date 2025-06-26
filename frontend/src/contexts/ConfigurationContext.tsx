@@ -3,6 +3,7 @@ import type { Dispatch, SetStateAction } from 'react';
 import { createContext, useContext, useState, useMemo, useEffect, useCallback } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import type { Example } from '@/types';
+import { useLLMConfig } from '@/contexts/LLMContext';
 export type { Example };
 
 // Types for the unified configuration
@@ -121,267 +122,7 @@ const defaultLLMConfig: LLMConfiguration = {
   isValid: null,
 };
 
-// Function to get predefined examples for various document types
-const getPredefinedExamples = (): Example[] => [
-  // Example 1: Invoice
-  {
-    input: `INVOICE
 
-Acme Corp
-123 Business Ave
-San Francisco, CA 94107
-
-Bill To:
-Tech Solutions Inc.
-456 Innovation Drive
-Palo Alto, CA 94301
-
-Invoice #: INV-2023-0456
-Date: 2023-09-15
-Due Date: 2023-10-15
-
-Description                   Quantity    Unit Price    Amount
---------------------------------------------------------------
-Cloud Storage (500GB)             1        $99.99       $99.99
-Premium Support Package           1       $199.99      $199.99
-API Access Tokens              100         $0.50       $50.00
---------------------------------------------------------------
-Subtotal                                              $349.98
-Tax (8.5%)                                             $29.75
-Total                                                 $379.73
-
-Payment Terms: Net 30
-Payment Methods: Bank Transfer, Credit Card
-
-Thank you for your business!
-`,
-    output: JSON.stringify({
-      "documentType": "invoice",
-      "title": "Acme Corp Invoice",
-      "date": "2023-09-15",
-      "metadata": {
-        "author": "Acme Corp",
-        "recipient": "Tech Solutions Inc.",
-        "documentId": "INV-2023-0456",
-        "creationDate": "2023-09-15"
-      },
-      "financialData": {
-        "totalAmount": 379.73,
-        "currency": "USD",
-        "taxAmount": 29.75,
-        "lineItems": [
-          {
-            "description": "Cloud Storage (500GB)",
-            "quantity": 1,
-            "unitPrice": 99.99,
-            "amount": 99.99
-          },
-          {
-            "description": "Premium Support Package",
-            "quantity": 1,
-            "unitPrice": 199.99,
-            "amount": 199.99
-          },
-          {
-            "description": "API Access Tokens",
-            "quantity": 100,
-            "unitPrice": 0.50,
-            "amount": 50.00
-          }
-        ],
-        "paymentTerms": "Net 30"
-      },
-      "contentData": {
-        "summary": "Invoice from Acme Corp to Tech Solutions Inc. for cloud services and support.",
-        "keywords": ["invoice", "cloud storage", "support package", "API tokens"]
-      },
-      "entities": [
-        {
-          "name": "Acme Corp",
-          "type": "organization",
-          "role": "sender"
-        },
-        {
-          "name": "Tech Solutions Inc.",
-          "type": "organization",
-          "role": "recipient"
-        }
-      ]
-    }, null, 2)
-  },
-  // Example 2: Technical Article
-  {
-    input: `# Understanding Machine Learning Fundamentals
-
-By Dr. Sarah Johnson
-Published: June 12, 2023
-
-## Introduction
-
-Machine Learning (ML) has become an essential tool in modern technology. This article provides an overview of key ML concepts for beginners and intermediate practitioners.
-
-## Supervised Learning
-
-Supervised learning involves training a model on labeled data. The algorithm learns to map inputs to outputs based on example input-output pairs. Common applications include:
-
-- Classification (predicting categories)
-- Regression (predicting continuous values)
-- Recommendation systems
-
-## Unsupervised Learning
-
-Unsupervised learning works with unlabeled data, finding patterns or structures without explicit guidance. Key techniques include:
-
-- Clustering (grouping similar data points)
-- Dimensionality reduction (simplifying data while preserving information)
-- Anomaly detection (identifying outliers)
-
-## Key Algorithms
-
-1. **Linear Regression**: Predicts continuous values using a linear approach
-2. **Decision Trees**: Tree-like models for classification and regression
-3. **Neural Networks**: Inspired by biological neural networks, powerful for complex patterns
-4. **K-means**: Clustering algorithm that partitions data into k clusters
-
-## Conclusion
-
-Understanding these fundamentals provides a solid foundation for more advanced ML concepts. In future articles, we'll explore model evaluation, hyperparameter tuning, and ethical considerations in AI.
-
-## References
-
-1. Mitchell, T. (1997). Machine Learning. McGraw Hill.
-2. Goodfellow, I., et al. (2016). Deep Learning. MIT Press.
-`,
-    output: JSON.stringify({
-      "documentType": "article",
-      "title": "Understanding Machine Learning Fundamentals",
-      "date": "2023-06-12",
-      "metadata": {
-        "author": "Dr. Sarah Johnson",
-        "recipient": null,
-        "documentId": null,
-        "creationDate": "2023-06-12"
-      },
-      "contentData": {
-        "summary": "An overview of machine learning concepts including supervised learning, unsupervised learning, and key algorithms for beginners and intermediate practitioners.",
-        "keywords": ["machine learning", "supervised learning", "unsupervised learning", "algorithms", "classification", "regression", "clustering"]
-      },
-      "entities": [
-        {
-          "name": "Dr. Sarah Johnson",
-          "type": "person",
-          "role": "author"
-        },
-        {
-          "name": "Mitchell, T.",
-          "type": "person",
-          "role": "referenced author"
-        },
-        {
-          "name": "Goodfellow, I.",
-          "type": "person",
-          "role": "referenced author"
-        }
-      ],
-      "financialData": null
-    }, null, 2)
-  },
-  // Example 3: Business Email
-  {
-    input: `From: michael.chen@techvision.com
-To: sarah.patel@innovatech.org
-Subject: Partnership Proposal for Q4 2023
-Date: August 28, 2023, 10:15 AM
-
-Dear Sarah,
-
-I hope this email finds you well. Following our conversation at the Tech Summit last month, I'm reaching out to formally propose a strategic partnership between TechVision and InnovaTech for Q4 2023.
-
-Proposed Collaboration Points:
-
-1. Joint webinar series on emerging AI technologies (October-November)
-2. Co-developed white paper on industry applications
-3. Shared booth at the December Tech Expo in San Francisco
-
-Budget Considerations:
-- Webinar platform and promotion: $5,000 (split equally)
-- White paper research and production: $8,000 (TechVision: 60%, InnovaTech: 40%)
-- Expo presence: $12,000 (split equally)
-
-I believe this partnership would benefit both organizations by expanding our market reach and positioning us as thought leaders in the AI space. Our preliminary market analysis suggests we could reach approximately 15,000 new potential clients through these combined efforts.
-
-Please let me know if you'd like to discuss this proposal further. I'm available for a call next Tuesday or Wednesday afternoon.
-
-Best regards,
-
-Michael Chen
-Business Development Director
-TechVision Inc.
-Phone: (555) 123-4567
-`,
-    output: JSON.stringify({
-      "documentType": "email",
-      "title": "Partnership Proposal for Q4 2023",
-      "date": "2023-08-28",
-      "metadata": {
-        "author": "Michael Chen",
-        "recipient": "Sarah Patel",
-        "documentId": null,
-        "creationDate": "2023-08-28"
-      },
-      "financialData": {
-        "totalAmount": 25000,
-        "currency": "USD",
-        "lineItems": [
-          {
-            "description": "Webinar platform and promotion",
-            "amount": 5000
-          },
-          {
-            "description": "White paper research and production",
-            "amount": 8000
-          },
-          {
-            "description": "Expo presence",
-            "amount": 12000
-          }
-        ],
-        "paymentTerms": null
-      },
-      "contentData": {
-        "summary": "A partnership proposal from TechVision to InnovaTech for Q4 2023, including joint webinars, a co-developed white paper, and shared expo presence with associated budget considerations.",
-        "keywords": ["partnership", "proposal", "webinar", "white paper", "expo", "budget", "AI technologies"]
-      },
-      "entities": [
-        {
-          "name": "Michael Chen",
-          "type": "person",
-          "role": "sender"
-        },
-        {
-          "name": "Sarah Patel",
-          "type": "person",
-          "role": "recipient"
-        },
-        {
-          "name": "TechVision",
-          "type": "organization",
-          "role": "sender organization"
-        },
-        {
-          "name": "InnovaTech",
-          "type": "organization",
-          "role": "recipient organization"
-        },
-        {
-          "name": "Tech Expo",
-          "type": "event",
-          "role": "mentioned event"
-        }
-      ]
-    }, null, 2)
-  }
-];
 
 const defaultSchema = JSON.stringify(
   {
@@ -582,6 +323,7 @@ Return the extracted data in the requested format. The output should be complete
 const ConfigurationContext = createContext<ConfigurationContextType | undefined>(undefined);
 
 export function ConfigurationProvider({ children }: { children: React.ReactNode }) {
+  const { generationModel } = useLLMConfig();
   // LLM Configuration State
   const [llmConfig, setLLMConfig] = useState<LLMConfiguration>(defaultLLMConfig);
   
@@ -594,399 +336,7 @@ export function ConfigurationProvider({ children }: { children: React.ReactNode 
   const [savedSchemas, setSavedSchemas] = useState<SavedSchema[]>([]);
   const [isSchemaGenerated, setIsSchemaGenerated] = useState(false);
   
-  // Predefined examples for different document types
-  const getPredefinedExamples = (): Example[] => [
-    // Example 1: Invoice
-    {
-      input: `INVOICE
-Invoice #: INV-2023-0456
-Date: May 15, 2023
-
-From:
-TechSupplies Inc.
-123 Business Ave
-San Francisco, CA 94107
-Tax ID: 98-7654321
-
-To:
-Acme Corporation
-789 Corporate Blvd
-New York, NY 10001
-
-Description                 Qty    Unit Price    Amount
-------------------------------------------------------
-Dell XPS 15 Laptop          2      $1,899.99     $3,799.98
-HP LaserJet Pro Printer     1      $349.99       $349.99
-USB-C Docking Station       2      $129.99       $259.98
-
-Subtotal:                                        $4,409.95
-Tax (8.875%):                                    $391.38
-Total:                                           $4,801.33
-
-Payment Terms: Net 30
-Due Date: June 14, 2023
-
-Please make payment to:
-Bank: First National Bank
-Account: 987-654321
-Routing: 123456789`,
-
-      output: `{
-  "documentType": "invoice",
-  "title": "TechSupplies Inc. Invoice #INV-2023-0456",
-  "date": "2023-05-15",
-  "metadata": {
-    "author": "TechSupplies Inc.",
-    "recipient": "Acme Corporation",
-    "documentId": "INV-2023-0456",
-    "creationDate": "2023-05-15"
-  },
-  "financialData": {
-    "totalAmount": 4801.33,
-    "currency": "USD",
-    "taxAmount": 391.38,
-    "lineItems": [
-      {
-        "description": "Dell XPS 15 Laptop",
-        "quantity": 2,
-        "unitPrice": 1899.99,
-        "amount": 3799.98
-      },
-      {
-        "description": "HP LaserJet Pro Printer",
-        "quantity": 1,
-        "unitPrice": 349.99,
-        "amount": 349.99
-      },
-      {
-        "description": "USB-C Docking Station",
-        "quantity": 2,
-        "unitPrice": 129.99,
-        "amount": 259.98
-      }
-    ],
-    "paymentTerms": "Net 30, Due Date: June 14, 2023"
-  },
-  "contentData": {
-    "sections": [],
-    "tables": [
-      {
-        "title": "Invoice Items",
-        "headers": ["Description", "Qty", "Unit Price", "Amount"],
-        "data": [
-          ["Dell XPS 15 Laptop", "2", "$1,899.99", "$3,799.98"],
-          ["HP LaserJet Pro Printer", "1", "$349.99", "$349.99"],
-          ["USB-C Docking Station", "2", "$129.99", "$259.98"]
-        ]
-      }
-    ]
-  },
-  "summary": "Invoice from TechSupplies Inc. to Acme Corporation for computer equipment including laptops, printer, and docking stations totaling $4,801.33 with payment due by June 14, 2023.",
-  "keywords": ["invoice", "TechSupplies Inc.", "Acme Corporation", "computer equipment", "payment"],
-  "entities": [
-    {
-      "name": "TechSupplies Inc.",
-      "type": "organization",
-      "value": "sender"
-    },
-    {
-      "name": "Acme Corporation",
-      "type": "organization",
-      "value": "recipient"
-    },
-    {
-      "name": "First National Bank",
-      "type": "organization",
-      "value": "payment recipient"
-    }
-  ]
-}`
-    },
-    // Example 2: Technical Article
-    {
-      input: `# Introduction to Machine Learning
-
-Author: Dr. Sarah Johnson
-Published: March 10, 2023
-Journal: AI Quarterly Review
-
-## Abstract
-This article provides an overview of machine learning concepts, techniques, and applications. It is intended for beginners who want to understand the fundamentals of this rapidly evolving field.
-
-## 1. What is Machine Learning?
-Machine Learning (ML) is a subset of artificial intelligence that focuses on developing systems that can learn from and make decisions based on data. Unlike traditional programming, where explicit instructions are provided, ML algorithms build models based on sample data to make predictions or decisions without being explicitly programmed to do so.
-
-## 2. Types of Machine Learning
-
-### 2.1 Supervised Learning
-In supervised learning, algorithms are trained using labeled data. The algorithm learns to map inputs to outputs based on example input-output pairs. Common applications include:
-- Classification (e.g., spam detection)
-- Regression (e.g., price prediction)
-
-### 2.2 Unsupervised Learning
-Unsupervised learning algorithms work with unlabeled data. They identify patterns and relationships within the data without prior training. Applications include:
-- Clustering (e.g., customer segmentation)
-- Dimensionality reduction
-
-### 2.3 Reinforcement Learning
-Reinforcement learning involves training algorithms to make sequences of decisions by rewarding desired behaviors and punishing undesired ones. It's commonly used in:
-- Game playing
-- Robotics
-- Autonomous vehicles
-
-## 3. Common Algorithms
-
-| Algorithm Type | Examples | Common Applications |
-|----------------|----------|---------------------|
-| Classification | Decision Trees, Random Forest, SVM | Spam detection, Image recognition |
-| Regression | Linear Regression, Ridge Regression | Price prediction, Risk assessment |
-| Clustering | K-means, Hierarchical Clustering | Customer segmentation, Anomaly detection |
-
-## Conclusion
-Machine learning continues to transform industries and drive innovation. As computing power increases and algorithms improve, we can expect even more sophisticated applications in the future.
-
-## References
-1. Mitchell, T. (1997). Machine Learning. McGraw Hill.
-2. Goodfellow, I., et al. (2016). Deep Learning. MIT Press.
-3. Russell, S., & Norvig, P. (2020). Artificial Intelligence: A Modern Approach. Pearson.`,
-
-      output: `{
-  "documentType": "article",
-  "title": "Introduction to Machine Learning",
-  "date": "2023-03-10",
-  "metadata": {
-    "author": "Dr. Sarah Johnson",
-    "recipient": null,
-    "documentId": null,
-    "creationDate": "2023-03-10"
-  },
-  "financialData": {
-    "totalAmount": null,
-    "currency": null,
-    "taxAmount": null,
-    "lineItems": [],
-    "paymentTerms": null
-  },
-  "contentData": {
-    "sections": [
-      {
-        "title": "Abstract",
-        "content": "This article provides an overview of machine learning concepts, techniques, and applications. It is intended for beginners who want to understand the fundamentals of this rapidly evolving field."
-      },
-      {
-        "title": "1. What is Machine Learning?",
-        "content": "Machine Learning (ML) is a subset of artificial intelligence that focuses on developing systems that can learn from and make decisions based on data. Unlike traditional programming, where explicit instructions are provided, ML algorithms build models based on sample data to make predictions or decisions without being explicitly programmed to do so."
-      },
-      {
-        "title": "2. Types of Machine Learning",
-        "content": "Includes supervised learning, unsupervised learning, and reinforcement learning sections with their applications."
-      },
-      {
-        "title": "3. Common Algorithms",
-        "content": "Describes various algorithm types, examples, and their common applications."
-      },
-      {
-        "title": "Conclusion",
-        "content": "Machine learning continues to transform industries and drive innovation. As computing power increases and algorithms improve, we can expect even more sophisticated applications in the future."
-      }
-    ],
-    "tables": [
-      {
-        "title": "Common Algorithms",
-        "headers": ["Algorithm Type", "Examples", "Common Applications"],
-        "data": [
-          ["Classification", "Decision Trees, Random Forest, SVM", "Spam detection, Image recognition"],
-          ["Regression", "Linear Regression, Ridge Regression", "Price prediction, Risk assessment"],
-          ["Clustering", "K-means, Hierarchical Clustering", "Customer segmentation, Anomaly detection"]
-        ]
-      }
-    ]
-  },
-  "summary": "An introductory article on machine learning written by Dr. Sarah Johnson and published in AI Quarterly Review on March 10, 2023. The article covers fundamental concepts of machine learning, including types (supervised, unsupervised, reinforcement learning) and common algorithms with their applications.",
-  "keywords": ["machine learning", "artificial intelligence", "supervised learning", "unsupervised learning", "reinforcement learning", "algorithms"],
-  "entities": [
-    {
-      "name": "Dr. Sarah Johnson",
-      "type": "person",
-      "value": "author"
-    },
-    {
-      "name": "AI Quarterly Review",
-      "type": "organization",
-      "value": "publisher"
-    },
-    {
-      "name": "Mitchell, T.",
-      "type": "person",
-      "value": "reference author"
-    },
-    {
-      "name": "Goodfellow, I.",
-      "type": "person",
-      "value": "reference author"
-    },
-    {
-      "name": "Russell, S.",
-      "type": "person",
-      "value": "reference author"
-    },
-    {
-      "name": "Norvig, P.",
-      "type": "person",
-      "value": "reference author"
-    }
-  ]
-}`
-    },
-    // Example 3: Email
-    {
-      input: `From: john.smith@company.com
-To: sarah.jones@client.org
-CC: michael.brown@company.com, legal@company.com
-Subject: Proposal for Website Redesign Project
-Date: April 5, 2023
-
-Dear Sarah,
-
-I hope this email finds you well. Following our meeting last week, I'm pleased to submit our formal proposal for the redesign of client.org.
-
-As discussed, our proposal includes:
-
-1. Complete redesign of the main website with responsive design
-2. Integration with your existing CMS
-3. SEO optimization
-4. Analytics setup and dashboard
-5. Training for your team
-
-The project timeline is estimated at 12 weeks from kickoff to launch, with the following cost breakdown:
-
-- Design phase: $15,000
-- Development: $35,000
-- Testing and QA: $8,000
-- Training and documentation: $7,000
-- Total project cost: $65,000
-
-We propose a payment schedule as follows:
-- 30% upon project kickoff
-- 30% at design approval
-- 30% at development completion
-- 10% upon final delivery
-
-Please review the attached detailed proposal document and let me know if you have any questions or would like to discuss any aspects further.
-
-We're excited about the opportunity to work with Client Organization and believe we can deliver a website that will significantly improve user engagement and conversion rates.
-
-Best regards,
-
-John Smith
-Senior Project Manager
-Company Solutions Inc.
-Phone: (555) 123-4567
-www.company.com`,
-
-      output: `{
-  "documentType": "email",
-  "title": "Proposal for Website Redesign Project",
-  "date": "2023-04-05",
-  "metadata": {
-    "author": "John Smith",
-    "recipient": "Sarah Jones",
-    "documentId": null,
-    "creationDate": "2023-04-05"
-  },
-  "financialData": {
-    "totalAmount": 65000,
-    "currency": "USD",
-    "taxAmount": null,
-    "lineItems": [
-      {
-        "description": "Design phase",
-        "quantity": null,
-        "unitPrice": null,
-        "amount": 15000
-      },
-      {
-        "description": "Development",
-        "quantity": null,
-        "unitPrice": null,
-        "amount": 35000
-      },
-      {
-        "description": "Testing and QA",
-        "quantity": null,
-        "unitPrice": null,
-        "amount": 8000
-      },
-      {
-        "description": "Training and documentation",
-        "quantity": null,
-        "unitPrice": null,
-        "amount": 7000
-      }
-    ],
-    "paymentTerms": "30% upon project kickoff, 30% at design approval, 30% at development completion, 10% upon final delivery"
-  },
-  "contentData": {
-    "sections": [
-      {
-        "title": "Proposal Items",
-        "content": "1. Complete redesign of the main website with responsive design\n2. Integration with your existing CMS\n3. SEO optimization\n4. Analytics setup and dashboard\n5. Training for your team"
-      },
-      {
-        "title": "Project Timeline",
-        "content": "12 weeks from kickoff to launch"
-      },
-      {
-        "title": "Payment Schedule",
-        "content": "- 30% upon project kickoff\n- 30% at design approval\n- 30% at development completion\n- 10% upon final delivery"
-      }
-    ],
-    "tables": [
-      {
-        "title": "Cost Breakdown",
-        "headers": ["Item", "Cost"],
-        "data": [
-          ["Design phase", "$15,000"],
-          ["Development", "$35,000"],
-          ["Testing and QA", "$8,000"],
-          ["Training and documentation", "$7,000"],
-          ["Total project cost", "$65,000"]
-        ]
-      }
-    ]
-  },
-  "summary": "Email from John Smith at Company Solutions Inc. to Sarah Jones at client.org regarding a proposal for website redesign project. The proposal outlines a 12-week project with a total cost of $65,000, covering design, development, testing, and training phases with a structured payment schedule.",
-  "keywords": ["proposal", "website redesign", "project", "cost", "timeline", "payment schedule"],
-  "entities": [
-    {
-      "name": "John Smith",
-      "type": "person",
-      "value": "sender"
-    },
-    {
-      "name": "Sarah Jones",
-      "type": "person",
-      "value": "primary recipient"
-    },
-    {
-      "name": "Michael Brown",
-      "type": "person",
-      "value": "cc recipient"
-    },
-    {
-      "name": "Company Solutions Inc.",
-      "type": "organization",
-      "value": "sender company"
-    },
-    {
-      "name": "Client Organization",
-      "type": "organization",
-      "value": "client"
-    }
-  ]
-}`
-    }
-  ];
+  
 
   // Prompt State
   const [systemPrompt, setSystemPrompt] = useState<string>(defaultSystemPrompt);
@@ -1096,11 +446,18 @@ www.company.com`,
   }, []);
 
   const validateLLMConnection = useCallback(async (): Promise<boolean> => {
-    // Simple validation - in a real app you'd test the actual connection
-    const isValid = !!(llmConfig.model && (llmConfig.apiKey.length > 15 || llmConfig.provider === 'googleAI'));
-    setLLMConfig(prev => ({ ...prev, isValid: isValid as boolean | null }));
-    return isValid;
-  }, [llmConfig.model, llmConfig.apiKey, llmConfig.provider]);
+    const { backendAIService } = await import('@/services/backend-api');
+    try {
+      const models = await backendAIService.getModels('extraction');
+      const isValid = models.length > 0;
+      setLLMConfig(prev => ({ ...prev, isValid }));
+      return isValid;
+    } catch (error) {
+      console.error('LLM connection validation failed:', error);
+      setLLMConfig(prev => ({ ...prev, isValid: false }));
+      return false;
+    }
+  }, []);
 
   // AI Generation Methods
   const generateFromPrompt = useCallback(async (input: GenerationInput) => {
@@ -1108,6 +465,9 @@ www.company.com`,
       throw new Error('LLM must be configured before generating content');
     }
 
+    // Create AbortController for cancellation
+    const abortController = new AbortController();
+    
     setIsGenerating(true);
     try {
       // Use the backend API for generation
@@ -1116,44 +476,17 @@ www.company.com`,
       const generationInput = {
         userIntent: input.userIntent,
         exampleCount: input.exampleCount,
-        modelName: llmConfig.model,
+        modelName: generationModel || llmConfig.model, // Use generation model for schema/prompt generation
         temperature: llmConfig.temperature,
         includeExamples: true,
         includeReasoning: true,
       };
       
-      const result = await backendAIService.generateUnifiedConfig(generationInput, llmConfig.apiKey);
-
-      // Convert the examples from the backend format to the frontend format
-      const backendExamples: Example[] = result.examples.map(ex => ({
-        input: ex.input,
-        output: typeof ex.output === 'string' ? ex.output : JSON.stringify(ex.output, null, 2)
-      }));
-
-      // Create a comprehensive set of examples by combining AI-generated examples
-      // with our predefined examples for various document types
-      const combinedExamples = [...backendExamples];
-      
-      // Add predefined examples if requested or if AI didn't generate enough examples
-      if (input.includeComprehensiveExamples || combinedExamples.length < 2) {
-        // Get predefined examples and add them to the mix
-        const predefinedExamples = getPredefinedExamples();
-        
-        // Add examples that are relevant to the user's intent
-        // This is a simple relevance check - in a real app, you might use more sophisticated matching
-        const userIntentLower = input.userIntent.toLowerCase();
-        predefinedExamples.forEach(example => {
-          // Check if this example might be relevant to the user's intent
-          const isRelevant = example.output.toLowerCase().includes(userIntentLower) ||
-                            userIntentLower.includes('comprehensive') ||
-                            userIntentLower.includes('all types') ||
-                            userIntentLower.includes('various');
-          
-          if (isRelevant && combinedExamples.length < 5) { // Limit to 5 total examples
-            combinedExamples.push(example);
-          }
-        });
-      }
+      const result = await backendAIService.generateUnifiedConfig(
+        generationInput, 
+        llmConfig.apiKey,
+        abortController.signal
+      );
 
       const generatedResult: GenerationResult = {
         id: uuidv4(),
@@ -1161,9 +494,8 @@ www.company.com`,
         schema: result.schema,
         systemPrompt: result.systemPrompt,
         userPromptTemplate: result.userPromptTemplate,
-        examples: combinedExamples,
+        examples: result.examples,
         reasoning: result.reasoning,
-        confidence: 0.85, // Default confidence since backend doesn't return it
         timestamp: Date.now(),
       };
 
@@ -1186,7 +518,7 @@ www.company.com`,
     } finally {
       setIsGenerating(false);
     }
-  }, [llmConfig.isConfigured, llmConfig.provider, llmConfig.model, llmConfig.temperature]);
+  }, [llmConfig.isConfigured, llmConfig.model, llmConfig.temperature, llmConfig.apiKey, generationModel]);
 
   const clearGenerationHistory = useCallback(() => {
     setGenerationHistory([]);

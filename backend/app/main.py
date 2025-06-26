@@ -85,7 +85,7 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:3001", "http://localhost:9002"],  # Frontend URLs
+    allow_origins=["http://localhost:3000", "http://localhost:3001", "http://localhost:9002", "http://localhost:3003"],  # Frontend URLs
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -179,7 +179,8 @@ async def process_json_data(fastapi_request: Request, request: ProcessRequest, b
 
                 try:
                     workflow = services.FinancialReportWorkflow(
-                        temp_dir=request_temp_dir
+                        temp_dir=request_temp_dir,
+                        model_id=request.model
                     )
                     # The workflow's run method is a generator, so we need to iterate through it.
                     # We'll run it in a thread pool since the underlying agent calls are blocking.
@@ -321,7 +322,7 @@ async def health_check():
         "status": "healthy",
         "version": settings.APP_VERSION,
         "temp_directory_exists": os.path.exists(app_state.get("TEMP_DIR", "")),
-        "agent_pool_size": len(services.AGENT_POOL),
+        "agent_pool_size": len(getattr(services, 'AGENT_POOL', {})),
         "active_files": len(app_state.get("TEMP_FILES", {})),
     }
     

@@ -18,6 +18,7 @@ export interface ExtractDataInput {
   };
   schemaDefinition: string;
   systemPrompt: string;
+  userPromptTemplate?: string;
   userTaskDescription?: string;
   examples?: Array<{
     input: string;
@@ -210,11 +211,12 @@ class BackendAIService {
   }
 
   // Extraction APIs
-  async extractData(input: ExtractDataInput): Promise<ExtractDataOutput> {
+  async extractData(input: ExtractDataInput, abortSignal?: AbortSignal): Promise<ExtractDataOutput> {
     const response = await this.fetchWithError<any>(
       '/api/extract-data',
       {
         method: 'POST',
+        signal: abortSignal,
         body: JSON.stringify({
           document_text: input.documentText,
           document_file: input.documentFile ? {
@@ -223,6 +225,7 @@ class BackendAIService {
           } : undefined,
           schema_definition: input.schemaDefinition,
           system_prompt: input.systemPrompt,
+          user_prompt_template: input.userPromptTemplate,
           user_task_description: input.userTaskDescription,
           examples: input.examples,
           provider: input.provider || 'googleAI',
@@ -304,7 +307,8 @@ class BackendAIService {
   // Generation APIs
   async generateUnifiedConfig(
     input: GenerateConfigInput,
-    apiKey?: string
+    apiKey?: string,
+    abortSignal?: AbortSignal
   ): Promise<GenerateConfigOutput> {
     const headers: HeadersInit = {};
     if (apiKey) {
@@ -316,6 +320,7 @@ class BackendAIService {
       {
         method: 'POST',
         headers,
+        signal: abortSignal,
         body: JSON.stringify({
           user_intent: input.userIntent,
           document_type: input.documentType,
@@ -467,6 +472,28 @@ class BackendAIService {
     }
 
     return response.data;
+  }
+
+  async processData(extractedData: string, fileName: string, agnoModel: string): Promise<any> {
+    const response = await this.fetchWithError('/api/process', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        json_data: extractedData,
+        file_name: fileName,
+        processing_mode: 'ai_only',
+        agno_model: agnoModel,
+        chunk_size: 1000
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Process failed: ${response.statusText}`);
+    }
+
+    return response.json();
   }
 }
 

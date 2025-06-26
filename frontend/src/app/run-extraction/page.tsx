@@ -336,7 +336,10 @@ export default function RunExtractionPage() {
               </div>
               <div className="flex items-center space-x-2">
                 <Switch id="agno-processing" checked={useAgnoProcessing} onCheckedChange={setUseAgnoProcessing} disabled={isProcessingQueue} aria-label="Enable Agno AI Processing"/>
-                <Label htmlFor="agno-processing">Transform Data with Agno AI</Label>
+                <div className="flex flex-col">
+                  <Label htmlFor="agno-processing">Transform Data with Agno AI</Label>
+                  <p className="text-xs text-muted-foreground">Convert extracted data to Excel reports automatically</p>
+                </div>
               </div>
               {thinkingEnabled && (
                 <div className="w-full sm:w-auto">

@@ -4,8 +4,17 @@ import logging
 from pathlib import Path
 from pydantic_settings import BaseSettings
 from pydantic import validator
+from dotenv import load_dotenv
 
 logger = logging.getLogger(__name__)
+
+# Explicitly load the .env file
+env_path = Path(__file__).resolve().parent.parent.parent.parent / ".env"
+if env_path.exists():
+    load_dotenv(env_path)
+    logger.info(f"Loaded environment variables from {env_path}")
+else:
+    logger.warning(f"Environment file not found at {env_path}")
 
 class Settings(BaseSettings):
     """
