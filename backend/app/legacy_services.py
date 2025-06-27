@@ -21,9 +21,29 @@ from agno.agent import Agent, RunResponse
 from agno.workflow import Workflow
 
 from .core.config import settings
-from .agents import create_agent
-from .agents.utils.directory_manager import AgentDirectoryManager
-from .agents.utils.execution_monitor import execution_monitor
+# from .agents import create_agent  # Legacy import - removed
+# Placeholder for create_agent function
+def create_agent(*args, **kwargs):
+    raise NotImplementedError("create_agent has been removed in the Agno-native refactor")
+# from .agents.utils.directory_manager import AgentDirectoryManager  # Legacy import - removed
+# from .agents.utils.execution_monitor import execution_monitor  # Legacy import - removed
+
+# Placeholder classes
+class AgentDirectoryManager:
+    def __init__(self, *args, **kwargs):
+        pass
+    def get_agent_dir(self, *args, **kwargs):
+        return tempfile.mkdtemp()
+
+class ExecutionMonitor:
+    def track_execution(self, *args, **kwargs):
+        return lambda x: x
+    def get_success_metrics(self):
+        return {}
+    def get_failure_patterns(self):
+        return {}
+
+execution_monitor = ExecutionMonitor()
 
 logger = logging.getLogger(__name__)
 

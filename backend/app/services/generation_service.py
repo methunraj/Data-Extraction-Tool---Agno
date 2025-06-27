@@ -32,8 +32,8 @@ from ..schemas.generation import (
     GeneratedExample
 )
 from .model_service import ModelService
-from ..agents.prompt_engineer.prompt_engineer import PromptEngineerAgent
-from ..agents.factory import create_agent
+# from ..agents.prompt_engineer.prompt_engineer import PromptEngineerAgent  # Legacy import - removed
+# from ..agents.factory import create_agent  # Legacy import - removed
 
 logger = logging.getLogger(__name__)
 

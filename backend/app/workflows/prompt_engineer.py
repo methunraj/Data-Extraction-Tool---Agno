@@ -13,12 +13,17 @@ from ..agents.tools import get_reasoning_tools
 from ..agents.memory import get_memory, get_storage
 
 
+class Example(BaseModel):
+    """Example input-output pair for few-shot learning."""
+    input: str = Field(..., description="Example input document text")
+    output: str = Field(..., description="Expected JSON output for this input")
+
 class ExtractionSchema(BaseModel):
     """Structured extraction configuration - validated by Agno automatically."""
     
-    json_schema: Dict[str, Any] = Field(
+    json_schema: str = Field(
         ..., 
-        description="Complete JSON schema with all required fields, types, and descriptions"
+        description="Complete JSON schema as a string with all required fields, types, and descriptions"
     )
     system_prompt: str = Field(
         ..., 
@@ -28,7 +33,7 @@ class ExtractionSchema(BaseModel):
         ..., 
         description="User prompt template with clear placeholders like {document_text}"
     )
-    examples: List[Dict[str, Any]] = Field(
+    examples: List[Example] = Field(
         default_factory=list, 
         description="2-3 high-quality few-shot examples showing input-output pairs"
     )
@@ -56,10 +61,10 @@ class PromptEngineerWorkflow:
         self.workflow_storage = get_storage()
         
         # Single powerful agent with reasoning and structured output
+        # Note: Gemini doesn't support tools with structured outputs, so we remove them
         self.engineer = Agent(
             name="PromptEngineer",
             model=get_structured_model(),  # Optimized for structured outputs
-            tools=[get_reasoning_tools(add_instructions=True)],  # Built-in reasoning
             instructions=[
                 "You are an expert prompt engineer specializing in data extraction configurations",
                 "Generate complete, production-ready extraction configurations",
@@ -67,14 +72,15 @@ class PromptEngineerWorkflow:
                 "Write clear, specific prompts that guide accurate data extraction",
                 "Include relevant few-shot examples that demonstrate the desired output",
                 "Focus on clarity, completeness, and extraction accuracy",
-                "Consider edge cases and data validation requirements"
+                "Consider edge cases and data validation requirements",
+                "Think step-by-step through the requirements before generating the configuration"
             ],
             response_model=ExtractionSchema,  # Structured output - no parsing needed!
-            reasoning=True,  # Enable step-by-step reasoning
-            markdown=True,
+            use_json_mode=True,  # Use JSON mode for complex nested structures
+            markdown=False,  # Disable markdown for cleaner JSON output
             memory=self.workflow_memory,
             storage=self.workflow_storage,
-            show_tool_calls=True
+            show_tool_calls=False
         )
     
     def run(self, requirements: str) -> ExtractionSchema:
@@ -129,13 +135,14 @@ class PromptEngineerWorkflow:
         Focus on creating a production-ready configuration that will reliably extract high-quality, structured data from the specified document types.
         """
         
-        # Get the last response from agent.run() which returns an iterator
-        responses = list(self.engineer.run(prompt))
-        if responses:
-            # Return the last response which should contain the structured data
-            return responses[-1].content
+        # Direct agent call returns RunResponse
+        response = self.engineer.run(prompt)
+        
+        # Extract the structured content from RunResponse
+        if hasattr(response, 'content') and isinstance(response.content, ExtractionSchema):
+            return response.content
         else:
-            raise Exception("No response received from agent")
+            raise ValueError("No valid structured response generated")
     
     def run_with_examples(self, requirements: str, sample_documents: List[str]) -> ExtractionSchema:
         """
@@ -165,12 +172,14 @@ class PromptEngineerWorkflow:
         Generate a complete extraction configuration optimized for these document types.
         """
         
-        # Get the last response from agent.run() which returns an iterator
-        responses = list(self.engineer.run(enhanced_prompt))
-        if responses:
-            return responses[-1].content
+        # Direct agent call returns RunResponse
+        response = self.engineer.run(enhanced_prompt)
+        
+        # Extract the structured content from RunResponse
+        if hasattr(response, 'content') and isinstance(response.content, ExtractionSchema):
+            return response.content
         else:
-            raise Exception("No response received from agent")
+            raise ValueError("No valid structured response generated")
     
     def refine_configuration(self, current_config: ExtractionSchema, feedback: str) -> ExtractionSchema:
         """
@@ -201,9 +210,11 @@ class PromptEngineerWorkflow:
         Return the complete refined configuration.
         """
         
-        # Get the last response from agent.run() which returns an iterator
-        responses = list(self.engineer.run(refinement_prompt))
-        if responses:
-            return responses[-1].content
+        # Direct agent call returns RunResponse
+        response = self.engineer.run(refinement_prompt)
+        
+        # Extract the structured content from RunResponse
+        if hasattr(response, 'content') and isinstance(response.content, ExtractionSchema):
+            return response.content
         else:
-            raise Exception("No response received from agent")
+            raise ValueError("No valid structured response generated")

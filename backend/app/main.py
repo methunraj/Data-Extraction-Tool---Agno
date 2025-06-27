@@ -23,6 +23,9 @@ from pydantic import BaseModel
 from .workflows.data_transform import DataTransformWorkflow
 from .workflows.prompt_engineer import PromptEngineerWorkflow, ExtractionSchema
 
+# Import routers - commented out due to legacy code conflicts
+# from .routers import models, generation, extraction, cache, agents, monitoring
+
 
 # Pydantic models for API requests
 class ConfigRequest(BaseModel):
@@ -50,6 +53,14 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Include routers - commented out due to legacy code conflicts
+# app.include_router(models.router)
+# app.include_router(generation.router)
+# app.include_router(extraction.router)
+# app.include_router(cache.router)
+# app.include_router(agents.router)
+# app.include_router(monitoring.router)
 
 # Global settings
 TEMP_DIR = os.environ.get("AGENT_TEMP_DIR", "/tmp/intelliextract")
@@ -113,11 +124,16 @@ async def generate_unified_config(request: Dict[str, Any]):
         result = config.model_dump()
         
         # Add additional fields expected by frontend
+        # Convert Example objects to dicts if needed
+        examples = result.get("examples", [])
+        if examples and hasattr(examples[0], 'model_dump'):
+            examples = [ex.model_dump() for ex in examples]
+        
         return {
             "schema": result.get("json_schema", "{}"),
             "system_prompt": result.get("system_prompt", ""),
             "user_prompt_template": result.get("user_prompt_template", ""),
-            "examples": result.get("examples", []),
+            "examples": examples,
             "reasoning": "Configuration generated successfully using Agno PromptEngineerWorkflow",
             "cost": 0.001,  # Placeholder cost
             "tokens_used": 1000  # Placeholder token count
@@ -295,94 +311,49 @@ async def cleanup_session_endpoint(session_id: str, background_tasks: Background
 @app.get("/api/models")
 async def get_models():
     """
-    Get available models for the frontend.
-    Returns hardcoded list of supported models since Agno handles model selection internally.
+    Get available models from models.json configuration.
     """
-    models = [
-        {
-            "id": "gemini-1.5-flash",
-            "displayName": "Gemini 1.5 Flash",
-            "description": "Fast, cost-effective model for most extraction tasks",
-            "provider": "google",
-            "supportedIn": ["extraction", "generation", "transform"],
-            "capabilities": {
-                "vision": True,
-                "audio": False,
-                "video": False,
-                "contextCaching": True,
-                "functionCalling": True,
-                "structuredOutputs": True
-            },
-            "limits": {
-                "maxInputTokens": 1000000,
-                "maxOutputTokens": 8192,
-                "contextWindow": 1000000
-            },
-            "pricing": {
-                "input": 0.000075,
-                "output": 0.0003,
-                "currency": "USD",
-                "unit": "1K tokens"
-            },
-            "status": "active"
-        },
-        {
-            "id": "gemini-1.5-pro",
-            "displayName": "Gemini 1.5 Pro",
-            "description": "High-quality model for complex extraction and reasoning tasks",
-            "provider": "google",
-            "supportedIn": ["extraction", "generation", "transform"],
-            "capabilities": {
-                "vision": True,
-                "audio": False,
-                "video": False,
-                "contextCaching": True,
-                "functionCalling": True,
-                "structuredOutputs": True
-            },
-            "limits": {
-                "maxInputTokens": 2000000,
-                "maxOutputTokens": 8192,
-                "contextWindow": 2000000
-            },
-            "pricing": {
-                "input": 0.00125,
-                "output": 0.005,
-                "currency": "USD",
-                "unit": "1K tokens"
-            },
-            "status": "active"
-        },
-        {
-            "id": "gemini-2.0-flash-exp",
-            "displayName": "Gemini 2.0 Flash (Experimental)",
-            "description": "Latest experimental model with improved capabilities",
-            "provider": "google",
-            "supportedIn": ["extraction", "generation", "transform"],
-            "capabilities": {
-                "vision": True,
-                "audio": True,
-                "video": False,
-                "contextCaching": True,
-                "functionCalling": True,
-                "structuredOutputs": True
-            },
-            "limits": {
-                "maxInputTokens": 1000000,
-                "maxOutputTokens": 8192,
-                "contextWindow": 1000000
-            },
-            "pricing": {
-                "input": 0.000075,
-                "output": 0.0003,
-                "currency": "USD",
-                "unit": "1K tokens"
-            },
-            "status": "experimental"
+    try:
+        # Import here to avoid circular dependency
+        from .services.model_service import get_model_service
+        
+        model_service = get_model_service()
+        models = model_service.get_all_models()
+        
+        # Convert to frontend-compatible format
+        formatted_models = []
+        for model in models:
+            formatted_models.append({
+                "id": model["id"],
+                "displayName": model["displayName"],
+                "description": model["description"],
+                "provider": model["provider"],
+                "supportedIn": model["supportedIn"],
+                "capabilities": model.get("capabilities", {}),
+                "limits": model.get("limits", {}),
+                "pricing": model.get("pricing", {}),
+                "status": model.get("status", "stable")
+            })
+        
+        return {"models": formatted_models}
+    except Exception as e:
+        # Fallback to minimal hardcoded models if service fails
+        print(f"Error loading models from service: {e}")
+        return {
+            "models": [
+                {
+                    "id": "gemini-2.0-flash-001",
+                    "displayName": "Gemini 2.0 Flash",
+                    "description": "Fast model for extraction",
+                    "provider": "googleAI",
+                    "supportedIn": ["extraction", "generation", "agno"],
+                    "capabilities": {"vision": True},
+                    "limits": {"maxInputTokens": 1000000},
+                    "pricing": {"input": 0.0001, "output": 0.0004},
+                    "status": "stable"
+                }
+            ]
         }
-    ]
-    
-    return {"models": models}
 
 
 @app.get("/health")
