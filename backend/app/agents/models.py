@@ -34,8 +34,16 @@ def get_search_model(model_id: Optional[str] = None, api_key: Optional[str] = No
 
 
 def get_structured_model(model_id: Optional[str] = None, api_key: Optional[str] = None) -> Gemini:
-    """Model optimized for structured outputs (no tools due to Gemini limitations)."""
+    """Model for structured output generation."""
     return Gemini(
-        id=model_id or os.environ.get("STRUCTURED_MODEL", "gemini-2.0-flash-exp"),
+        id=model_id or os.environ.get("STRUCTURED_MODEL", "gemini-2.0-flash"),
+        api_key=api_key or os.environ.get("GOOGLE_API_KEY")
+    )
+
+
+def get_transform_model(model_id: Optional[str] = None, api_key: Optional[str] = None) -> Gemini:
+    """Model for data transformation and Excel generation."""
+    return Gemini(
+        id=model_id or os.environ.get("TRANSFORM_MODEL", "gemini-2.0-flash"),
         api_key=api_key or os.environ.get("GOOGLE_API_KEY")
     )

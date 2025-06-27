@@ -494,7 +494,10 @@ export function ConfigurationProvider({ children }: { children: React.ReactNode 
         schema: result.schema,
         systemPrompt: result.systemPrompt,
         userPromptTemplate: result.userPromptTemplate,
-        examples: result.examples,
+        examples: result.examples.map(ex => ({
+          input: ex.input,
+          output: JSON.stringify(ex.output, null, 2)
+        })),
         reasoning: result.reasoning,
         timestamp: Date.now(),
       };
@@ -503,7 +506,7 @@ export function ConfigurationProvider({ children }: { children: React.ReactNode 
       setSchemaJson(generatedResult.schema);
       setSystemPrompt(generatedResult.systemPrompt);
       setUserPromptTemplate(generatedResult.userPromptTemplate);
-      setExamples(generatedResult.examples);
+      setExamples(generatedResult.examples as Example[]);
       
       // Mark as generated
       setIsSchemaGenerated(true);

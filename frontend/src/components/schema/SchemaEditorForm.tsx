@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
-import { generateSchema } from '@/ai/flows/schema-definition-ui';
+// Removed unused import
 import { Loader2, Sparkles, Save, List, Download, Trash2, UploadCloud } from 'lucide-react';
 import { useSchema, type SavedSchema } from '@/contexts/SchemaContext';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -73,20 +73,24 @@ export function SchemaEditorForm() {
     }
     startGenerationTransition(async () => {
       try {
-        const result = await generateSchema({ intent });
-        let schemaToSet = result.schema;
+        // TODO: Implement schema generation using backend API
+        toast({ title: 'Not Implemented', description: 'Schema generation is not yet implemented in this component.', variant: 'destructive' });
+        return;
         
-        // Use a different regex approach without the 's' flag
-        const markdownJsonMatch = schemaToSet.match(/```json\n?([\s\S]*?)\n?```/);
-        if (markdownJsonMatch && markdownJsonMatch[1]) {
-            schemaToSet = markdownJsonMatch[1];
-        }
-        schemaToSet = schemaToSet.trim();
-
-        setLocalSchemaJson(schemaToSet);
-        toast({ title: 'Schema Generated', description: 'AI has successfully generated a schema. Review and apply or save to list.' });
-        setSelectedSchemaId(undefined); 
-        setCurrentSchemaName(''); 
+        // const result = await generateSchema({ intent });
+        // let schemaToSet = result.schema;
+        // 
+        // // Use a different regex approach without the 's' flag
+        // const markdownJsonMatch = schemaToSet.match(/```json\n?([\s\S]*?)\n?```/);
+        // if (markdownJsonMatch && markdownJsonMatch[1]) {
+        //     schemaToSet = markdownJsonMatch[1];
+        // }
+        // schemaToSet = schemaToSet.trim();
+        //
+        // setLocalSchemaJson(schemaToSet);
+        // toast({ title: 'Schema Generated', description: 'AI has successfully generated a schema. Review and apply or save to list.' });
+        // setSelectedSchemaId(undefined); 
+        // setCurrentSchemaName(''); 
       } catch (error) {
         console.error('Schema generation error:', error);
         toast({ title: 'Error', description: 'An error occurred during schema generation.', variant: 'destructive' });

@@ -38,6 +38,23 @@ interface JobContextType {
   // Caching related properties
   useCaching: boolean;
   setUseCaching: Dispatch<SetStateAction<boolean>>;
+  cachePricePerMillionTokens: number;
+  setCachePricePerMillionTokens: Dispatch<SetStateAction<number>>;
+  cacheStats: {
+    totalCachedTokens: number;
+    totalCacheSavings: number;
+    cacheHitRate: number;
+    cacheHits: number;
+    tokensSaved: number;
+    storageCost: number;
+    netSavings: number;
+  };
+  cachePricing: {
+    pricePerMillionTokens: number;
+    savingsPerMillionTokens: number;
+    cacheStoragePricePerMillionTokensPerHour: number;
+  };
+  updateCachePricing: (pricing: { pricePerMillionTokens?: number; cacheStoragePricePerMillionTokensPerHour?: number }) => void;
 
   startProcessingJobQueue: (
     filesToProcess: AppFile[], 
@@ -99,6 +116,21 @@ export function JobProvider({ children }: { children: React.ReactNode }) {
   // Add caching state
   const [useCaching, setUseCaching] = useState<boolean>(false);
   const [currentCacheId, setCurrentCacheId] = useState<string | undefined>(undefined);
+  const [cachePricePerMillionTokens, setCachePricePerMillionTokens] = useState<number>(0.075);
+  const [cacheStats, setCacheStats] = useState({
+    totalCachedTokens: 0,
+    totalCacheSavings: 0,
+    cacheHitRate: 0,
+    cacheHits: 0,
+    tokensSaved: 0,
+    storageCost: 0,
+    netSavings: 0,
+  });
+  const [cachePricing, setCachePricing] = useState({
+    pricePerMillionTokens: 0.075,
+    savingsPerMillionTokens: 0,
+    cacheStoragePricePerMillionTokensPerHour: 0.00025,
+  });
   
   // Get backend models for pricing calculation
   const { backendModels } = useLLMConfig();
@@ -126,6 +158,15 @@ export function JobProvider({ children }: { children: React.ReactNode }) {
     setCurrentTask('');
     setCurrentFileProcessing(null);
     setCurrentThinkingStream('');
+  }, []);
+
+  const updateCachePricing = useCallback((pricePerMillionTokens: number) => {
+    setCachePricePerMillionTokens(pricePerMillionTokens);
+    setCachePricing(prev => ({
+      ...prev,
+      pricePerMillionTokens,
+      savingsPerMillionTokens: pricePerMillionTokens * 0.9, // 90% savings on cached tokens
+    }));
   }, []);
 
   const cancelProcessingJobQueue = useCallback(() => {
@@ -300,8 +341,10 @@ export function JobProvider({ children }: { children: React.ReactNode }) {
             const agnoResult = await backendAIService.processWithAgno({
               extractedData: extractedDataJson,
               fileName: fileJob.name.replace(/\.[^/.]+$/, '.xlsx'),
-              sessionId: `session_${uuidv4()}`,
-              userId: `user_${uuidv4()}`
+              llmProvider: llmProvider || 'googleAI',
+              model: agnoModel || 'gemini-2.0-flash-exp',
+              apiKey: llmApiKey,
+              temperature: llmTemperature
             });
             
             if (agnoResult.success && agnoResult.download_url) {
@@ -477,6 +520,8 @@ export function JobProvider({ children }: { children: React.ReactNode }) {
     currentFileProcessing, currentThinkingStream,
     startProcessingJobQueue, cancelProcessingJobQueue,
     useCaching, setUseCaching,
+    cachePricePerMillionTokens, setCachePricePerMillionTokens,
+    cacheStats, cachePricing, updateCachePricing,
   }), [
     jobQueue, jobResults, clearJobResults,
     isProcessingQueue,
@@ -488,6 +533,7 @@ export function JobProvider({ children }: { children: React.ReactNode }) {
     currentFileProcessing, currentThinkingStream,
     startProcessingJobQueue, cancelProcessingJobQueue,
     useCaching, setUseCaching,
+    cachePricePerMillionTokens, cacheStats, cachePricing, updateCachePricing,
   ]);
 
   return <JobContext.Provider value={value}>{children}</JobContext.Provider>;

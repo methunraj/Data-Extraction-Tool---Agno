@@ -546,31 +546,45 @@ class BackendAIService {
     apiKey?: string;
     temperature?: number;
   }): Promise<any> {
-    const response = await fetch('/api/agno-process', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        extractedData: params.extractedData,
-        fileName: params.fileName,
-        llmProvider: params.llmProvider,
-        model: params.model,
-        apiKey: params.apiKey,
-        temperature: params.temperature
-      })
-    });
+    const response = await this.fetchWithError<any>(
+      '/api/agno-process',
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          extractedData: params.extractedData,
+          fileName: params.fileName,
+          llmProvider: params.llmProvider,
+          model: params.model,
+          apiKey: params.apiKey,
+          temperature: params.temperature
+        })
+      }
+    );
 
-    if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.error || 'Agno processing failed');
+    if (response.error) {
+      throw new Error(response.error);
     }
 
-    return response.json();
+    return response.data;
   }
 
   /** Check system health */
   async checkHealth(): Promise<any> {
     const response = await fetch('/api/health');
     return response.json();
+  }
+
+  /** Get agent pool status */
+  async getAgentPoolStatus(): Promise<any> {
+    const response = await this.fetchWithError<any>('/api/agent-pool-status', {
+      method: 'GET',
+    });
+    
+    if (response.error) {
+      throw new Error(response.error);
+    }
+    
+    return response.data;
   }
 }
 

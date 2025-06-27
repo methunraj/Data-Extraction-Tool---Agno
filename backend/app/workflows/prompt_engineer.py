@@ -138,10 +138,24 @@ class PromptEngineerWorkflow:
         # Direct agent call returns RunResponse
         response = self.engineer.run(prompt)
         
+        # Debug logging
+        print(f"[PromptEngineer] Response type: {type(response)}")
+        if hasattr(response, 'content'):
+            print(f"[PromptEngineer] Content type: {type(response.content)}")
+            print(f"[PromptEngineer] Content: {response.content}")
+        
         # Extract the structured content from RunResponse
         if hasattr(response, 'content') and isinstance(response.content, ExtractionSchema):
             return response.content
+        elif hasattr(response, 'content') and isinstance(response.content, dict):
+            # Try to create ExtractionSchema from dict
+            try:
+                return ExtractionSchema(**response.content)
+            except Exception as e:
+                print(f"[PromptEngineer] Failed to create ExtractionSchema from dict: {e}")
+                raise ValueError(f"Failed to parse response as ExtractionSchema: {e}")
         else:
+            print(f"[PromptEngineer] Invalid response format")
             raise ValueError("No valid structured response generated")
     
     def run_with_examples(self, requirements: str, sample_documents: List[str]) -> ExtractionSchema:
@@ -175,10 +189,23 @@ class PromptEngineerWorkflow:
         # Direct agent call returns RunResponse
         response = self.engineer.run(enhanced_prompt)
         
+        # Debug logging
+        print(f"[PromptEngineer] Response type: {type(response)}")
+        if hasattr(response, 'content'):
+            print(f"[PromptEngineer] Content type: {type(response.content)}")
+        
         # Extract the structured content from RunResponse
         if hasattr(response, 'content') and isinstance(response.content, ExtractionSchema):
             return response.content
+        elif hasattr(response, 'content') and isinstance(response.content, dict):
+            # Try to create ExtractionSchema from dict
+            try:
+                return ExtractionSchema(**response.content)
+            except Exception as e:
+                print(f"[PromptEngineer] Failed to create ExtractionSchema from dict: {e}")
+                raise ValueError(f"Failed to parse response as ExtractionSchema: {e}")
         else:
+            print(f"[PromptEngineer] Invalid response format")
             raise ValueError("No valid structured response generated")
     
     def refine_configuration(self, current_config: ExtractionSchema, feedback: str) -> ExtractionSchema:
