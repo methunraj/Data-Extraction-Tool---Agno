@@ -8,7 +8,6 @@ from .transform_data.strategist import StrategistAgent
 from .transform_data.codegen import CodeGenAgent
 from .transform_data.qa import QualityAssuranceAgent
 from .prompt_engineer.prompt_engineer import PromptEngineerAgent
-from .json_corrector import JSONCorrectorAgent
 
 logger = logging.getLogger(__name__)
 
@@ -46,35 +45,37 @@ def create_agent(agent_type: str, **kwargs) -> Agent:
     elif agent_type == "prompt_engineer":
         agent_instance = PromptEngineerAgent(model_id=model_id)
         return agent_instance.agent
-    elif agent_type == "json_corrector":
-        agent_instance = JSONCorrectorAgent(model_id=model_id)
-        return agent_instance.agent
     else:
-        raise ValueError(f"Unknown agent type: {agent_type}")
+        raise ValueError(f"Unknown agent type: {agent_type}. Available types: search, strategist, qa, codegen, prompt_engineer")
 
 def get_agent_info() -> Dict[str, Dict[str, Any]]:
     """Get information about available agent types."""
     return {
         "search": {
-            "description": "Currency conversion and fact-checking agent with search capabilities",
+            "description": "Enhanced financial intelligence analyst specializing in currency conversion and market data verification with multi-source validation",
             "tools": ["Search", "Grounding"],
             "required_args": []
         },
         "strategist": {
-            "description": "Task planning and breakdown agent",
+            "description": "Military-grade strategic planning agent for complex task breakdown and risk assessment with contingency planning",
             "tools": [],
             "required_args": []
         },
         "qa": {
-            "description": "Quality assurance agent for code and output verification",
+            "description": "Comprehensive quality assurance specialist with multi-level testing framework and enterprise-grade validation protocols",
             "tools": ["PythonTools"],
             "required_args": []
         },
         "codegen": {
-            "description": "Python code generation and execution agent for Excel creation",
-            "tools": ["PythonTools"],
+            "description": "Production-grade Python architect for bulletproof Excel generation with adaptive algorithms and enterprise-level error handling",
+            "tools": ["PythonTools", "ShellTools"],
             "required_args": ["temp_dir"],
             "optional_args": ["exchange_rates"]
+        },
+        "prompt_engineer": {
+            "description": "Expert AI architect specializing in forensic-level data extraction configurations with industry compliance and multilingual support",
+            "tools": [],
+            "required_args": []
         }
     }
 

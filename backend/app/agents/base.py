@@ -96,17 +96,17 @@ class BaseAgent(ABC):
             self.temp_dir = os.path.abspath(self.temp_dir)
             os.makedirs(self.temp_dir, exist_ok=True)
         
-        # Create unique storage for Python agent
+        # Create unique storage for agent
         storage_dir = Path("storage")
         storage_dir.mkdir(exist_ok=True)
         unique_db_id = os.urandom(4).hex()
-        db_path = storage_dir / f"python_agents_{unique_db_id}.db"
+        db_path = storage_dir / f"{self.agent_type}_agents_{unique_db_id}.db"
         
         # Ensure storage directory has write permissions
         storage_dir.chmod(0o755)
         
         agent_storage = SqliteStorage(
-            table_name="python_agent_sessions",
+            table_name=f"{self.agent_type}_agent_sessions",
             db_file=str(db_path),
             auto_upgrade_schema=True
         )
@@ -115,36 +115,32 @@ class BaseAgent(ABC):
         if db_path.exists():
             db_path.chmod(0o644)
         
-        # Create Python execution agent with enhanced configuration
-        self._agent = Agent(
-            model=self.create_gemini_model(),
-            tools=self.get_tools(),
-            storage=agent_storage,
-            add_history_to_messages=True,
-            num_history_runs=3,
-            reasoning=False,
-            show_tool_calls=True,
-            markdown=True,
-            add_datetime_to_instructions=True,
-            tool_call_limit=20,
-            instructions=self.get_instructions(),
-            exponential_backoff=True,
-            retries=5,
-            debug_mode=settings.AGNO_DEBUG,
-            monitoring=settings.AGNO_MONITOR,
-        )
+        # Prepare agent configuration
+        agent_config = {
+            "model": self.create_gemini_model(),
+            "tools": self.get_tools(),
+            "storage": agent_storage,
+            "add_history_to_messages": True,
+            "num_history_runs": 3,
+            "reasoning": False,
+            "show_tool_calls": True,
+            "markdown": True,
+            "add_datetime_to_instructions": True,
+            "tool_call_limit": 20,
+            "instructions": self.get_instructions(),
+            "exponential_backoff": True,
+            "retries": 5,
+            "debug_mode": settings.AGNO_DEBUG,
+            "monitoring": settings.AGNO_MONITOR,
+        }
         
-        return self._agent
-            
-        self._agent = Agent(
-            model=self.create_gemini_model(),
-            tools=self.get_tools(),
-            storage=self.create_storage(f"{self.agent_type}_agent_sessions"),
-            instructions=self.get_instructions(),
-            markdown=True,
-            show_tool_calls=True,
-            debug_mode=settings.AGNO_DEBUG,
-        )
+        # Add structured output if available (for Pydantic models)
+        if hasattr(self, 'response_model') and self.response_model:
+            agent_config["response_model"] = self.response_model
+            logger.info(f"Configured {self.agent_type} agent with structured output: {self.response_model.__name__}")
+        
+        # Create agent with enhanced configuration
+        self._agent = Agent(**agent_config)
         
         logger.info(f"Created {self.agent_type} agent with model: {self.get_agno_model()}")
         return self._agent

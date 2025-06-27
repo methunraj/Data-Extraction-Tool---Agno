@@ -220,42 +220,20 @@ class FinancialReportWorkflow(Workflow):
                 raise asyncio.CancelledError("Workflow cancelled by client request.")
 
             # 3. Code Generation Agent
-            codegen_prompt = f"""Based on the following plan and JSON data, create and EXECUTE Python code to generate a comprehensive Excel report.
+            codegen_prompt = f"""🚨 EXECUTE PYTHON CODE NOW to create Excel report from this JSON data.
 
-🎯 CRITICAL SUCCESS REQUIREMENTS:
-1. You MUST execute the code immediately using your Python tools
-2. Create Excel file in this EXACT directory: {self.temp_dir}
-3. Use the FileOperations class for reliable file handling
-4. VERIFY file creation with mandatory checks
+📁 Save to: {self.temp_dir}
 
-🔧 RELIABILITY STRATEGY (FileOperations class handles this):
-- Multiple save attempts with different filenames
-- Automatic fallback strategies
-- File verification and debugging
-- Error recovery and reporting
-
-📊 FORMATTING REQUIREMENTS:
-- Header row: Navy blue background (#1F4E79) with white text
-- Alternate row colors: Light blue (#E6F2FF) and white
-- Currency cells: Green for positive, red for negative
-- Bold fonts for headers and totals
-- Professional borders and styling
-- Multiple sheets for different data categories
-
-MANDATORY: Use FileOperations class for all file operations
-The agent instructions include a robust FileOperations class that handles:
-- Reliable file saving with multiple fallback strategies
-- File verification and debugging
-- Working directory management
-- Error reporting and recovery
-
-Plan:
-{plan}
+🔥 IMMEDIATE ACTION REQUIRED:
+1. Use save_to_file_and_run tool RIGHT NOW
+2. Process the JSON data into Excel worksheets  
+3. Apply professional formatting
+4. Save as 'financial_report.xlsx'
 
 JSON Data:
 {json.dumps(json_data, indent=2)}
 
-🚨 CRITICAL: Use the FileOperations class provided in your instructions for reliable file handling!"""
+Your instructions contain all the code you need. EXECUTE IT IMMEDIATELY."""
             
             if broadcaster:
                 try:
@@ -293,7 +271,7 @@ PROVIDE FEEDBACK ON:
 Code Generation Results:
 {}
 
-Focus on constructive feedback rather than blocking approval. If the file exists and contains data, consider it acceptable.""".format(self.temp_dir, self.code_gen_agent.run_response.content)
+Focus on constructive feedback rather than blocking approval. If the file exists and contains data, consider it acceptable.""".format(self.temp_dir, getattr(getattr(self.code_gen_agent, 'run_response', None), 'content', 'No code execution detected') if hasattr(self.code_gen_agent, 'run_response') and self.code_gen_agent.run_response else 'No code execution detected')
             
             if broadcaster:
                 try:

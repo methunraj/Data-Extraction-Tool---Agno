@@ -50,8 +50,16 @@ IMPORTANT:
 """
         
         try:
-            response = await self.agent.arun(correction_prompt)
+            response = await self.arun(correction_prompt)
             corrected_json = response.content.strip()
+            
+            # Remove any markdown if present
+            if corrected_json.startswith("```json"):
+                corrected_json = corrected_json[7:].strip()
+            if corrected_json.startswith("```"):
+                corrected_json = corrected_json[3:].strip()
+            if corrected_json.endswith("```"):
+                corrected_json = corrected_json[:-3].strip()
             
             # Validate the corrected JSON
             try:

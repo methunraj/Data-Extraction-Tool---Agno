@@ -33,8 +33,14 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Handles application startup and shutdown events."""
-    # Startup
-    app_state["TEMP_DIR"] = tempfile.mkdtemp(prefix=settings.TEMP_DIR_PREFIX)
+    # Startup - Use configured AGENT_TEMP_DIR if available, otherwise create temp directory
+    if settings.AGENT_TEMP_DIR and os.path.exists(os.path.dirname(settings.AGENT_TEMP_DIR)):
+        app_state["TEMP_DIR"] = settings.AGENT_TEMP_DIR
+        os.makedirs(app_state["TEMP_DIR"], exist_ok=True)
+        logger.info(f"Using configured AGENT_TEMP_DIR: {app_state['TEMP_DIR']}")
+    else:
+        app_state["TEMP_DIR"] = tempfile.mkdtemp(prefix=settings.TEMP_DIR_PREFIX)
+        logger.info(f"Using system temp directory: {app_state['TEMP_DIR']}")
     app_state["TEMP_FILES"] = {}
     app_state["METRICS"] = {
         'total_requests': 0, 'successful_conversions': 0, 'ai_conversions': 0,
@@ -50,7 +56,13 @@ async def lifespan(app: FastAPI):
     logger.info("Application shutdown. Cleaning up temp directory...")
     # Clean up agent pool to free memory
     services.cleanup_agent_pool()
-    shutil.rmtree(app_state["TEMP_DIR"])
+    
+    # Only remove temp directory if it's not the configured AGENT_TEMP_DIR
+    if app_state["TEMP_DIR"] != settings.AGENT_TEMP_DIR:
+        shutil.rmtree(app_state["TEMP_DIR"])
+        logger.info("System temp directory cleaned up.")
+    else:
+        logger.info("Configured AGENT_TEMP_DIR preserved (not cleaned up).")
     logger.info("Cleanup complete.")
 
 app = FastAPI(
