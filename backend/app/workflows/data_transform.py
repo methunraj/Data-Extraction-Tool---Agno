@@ -27,7 +27,7 @@ class DataTransformWorkflow(Workflow):
     
     name: str = "DataTransform"
     
-    def __init__(self, working_dir: Optional[str] = None):
+    def __init__(self, working_dir: Optional[str] = None, model_id: Optional[str] = None):
         """Initialize workflow with working directory for file operations."""
         super().__init__()
         
@@ -42,7 +42,7 @@ class DataTransformWorkflow(Workflow):
         # Agent 1: Strategic Planning with Reasoning
         self.strategist = Agent(
             name="Strategist",
-            model=get_reasoning_model(),
+            model=get_reasoning_model(model_id=model_id),
             tools=[get_reasoning_tools(add_instructions=True)],
             instructions=[
                 "Analyze the data extraction request step by step",
@@ -60,7 +60,7 @@ class DataTransformWorkflow(Workflow):
         # Agent 2: Document Analysis and Data Extraction  
         self.extractor = Agent(
             name="DataExtractor",
-            model=get_extraction_model(),
+            model=get_extraction_model(model_id=model_id),
             tools=[
                 get_python_tools(self.working_dir),  # For file reading and processing
                 FileTools(base_dir=self.working_dir)  # For file operations
@@ -81,7 +81,7 @@ class DataTransformWorkflow(Workflow):
         # Agent 3: Excel Generation and Formatting
         self.generator = Agent(
             name="ExcelGenerator", 
-            model=get_extraction_model(),
+            model=get_extraction_model(model_id=model_id),
             tools=[get_python_tools(self.working_dir)],
             instructions=[
                 "Generate professional Excel reports using pandas and openpyxl",

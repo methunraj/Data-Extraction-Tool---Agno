@@ -2,7 +2,7 @@
 Simplified Prompt Engineer Workflow using Agno's native structured outputs.
 One agent, structured response_model, built-in reasoning - pure simplicity.
 """
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
 from pydantic import BaseModel, Field
 
 from agno.agent import Agent
@@ -53,7 +53,7 @@ class PromptEngineerWorkflow:
     Simplicity: One agent instead of multiple, structured output via response_model.
     """
     
-    def __init__(self):
+    def __init__(self, model_id: Optional[str] = None):
         """Initialize with shared memory and storage."""
         
         # Shared infrastructure
@@ -64,7 +64,7 @@ class PromptEngineerWorkflow:
         # Note: Gemini doesn't support tools with structured outputs, so we remove them
         self.engineer = Agent(
             name="PromptEngineer",
-            model=get_structured_model(),  # Optimized for structured outputs
+            model=get_structured_model(model_id=model_id),  # Use provided model or default
             instructions=[
                 "You are an expert prompt engineer specializing in data extraction configurations",
                 "Generate complete, production-ready extraction configurations",

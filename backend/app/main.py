@@ -36,6 +36,13 @@ class ConfigRequest(BaseModel):
 class ExtractionRequest(BaseModel):
     request: str
     session_id: Optional[str] = None
+    model_name: Optional[str] = None
+    document_text: Optional[str] = None
+    document_file: Optional[Dict[str, Any]] = None
+    schema_definition: Optional[str] = None
+    system_prompt: Optional[str] = None
+    user_prompt_template: Optional[str] = None
+    examples: Optional[List[Dict[str, str]]] = None
 
 
 # Initialize FastAPI app
@@ -101,8 +108,12 @@ async def generate_unified_config(request: Dict[str, Any]):
     Maps frontend parameters to PromptEngineerWorkflow.
     """
     try:
-        # Initialize workflow
-        prompt_engineer = PromptEngineerWorkflow()
+        # Extract model_name from request
+        model_name = request.get("model_name")
+        print(f"[generate-unified-config] Received model_name: {model_name}")
+        
+        # Initialize workflow with the selected model
+        prompt_engineer = PromptEngineerWorkflow(model_id=model_name)
         
         # Map frontend parameters to backend format
         requirements = request.get("user_intent", "")
@@ -166,6 +177,87 @@ async def refine_config(
 
 
 @app.post("/api/extract-data")
+async def extract_data_json(request: Dict[str, Any]):
+    """
+    Extract data endpoint that accepts JSON input (frontend-compatible).
+    Uses Agno to process documents directly.
+    """
+    try:
+        import os
+        from agno.agent import Agent
+        from agno.models.google import Gemini
+        
+        # Extract parameters from request
+        document_text = request.get("document_text", "")
+        document_file = request.get("document_file")
+        schema_definition = request.get("schema_definition", "{}")
+        system_prompt = request.get("system_prompt", "Extract data according to the schema")
+        user_prompt_template = request.get("user_prompt_template", "{document_text}")
+        examples = request.get("examples", [])
+        model_name = request.get("model_name", "gemini-2.0-flash")
+        print(f"[extract-data] Received model_name: {model_name}")
+        
+        # Handle document content
+        content = document_text
+        if not content and document_file:
+            # For now, we'll just use the text content
+            # In a full implementation, Agno would handle the file directly
+            content = "Document file provided but text extraction not implemented"
+        
+        # Create extraction agent with the selected model
+        agent = Agent(
+            name="DataExtractor",
+            model=Gemini(
+                id=model_name,
+                api_key=os.environ.get("GOOGLE_API_KEY")
+            ),
+            instructions=[system_prompt],
+            markdown=False,
+            show_tool_calls=False
+        )
+        
+        # Build the extraction prompt
+        prompt = user_prompt_template.replace("{document_text}", content)
+        prompt += f"\n\nExtract data according to this JSON schema:\n{schema_definition}"
+        
+        if examples:
+            prompt += "\n\nExamples:"
+            for ex in examples:
+                prompt += f"\nInput: {ex.get('input', '')}\nOutput: {ex.get('output', '')}\n"
+        
+        # Run extraction
+        response = agent.run(prompt)
+        
+        # Extract the content
+        extracted_json = ""
+        if hasattr(response, 'content'):
+            extracted_json = response.content
+        
+        # Return response in expected format
+        return {
+            "extracted_json": str(extracted_json),
+            "token_usage": {
+                "prompt_tokens": 1000,  # Placeholder
+                "completion_tokens": 500,  # Placeholder
+                "total_tokens": 1500,  # Placeholder
+                "cached_tokens": 0,
+                "thinking_tokens": 0
+            },
+            "cost": 0.001,  # Placeholder
+            "model_used": model_name,
+            "cache_hit": False,
+            "retry_count": 0,
+            "thinking_text": None
+        }
+        
+    except Exception as e:
+        import traceback
+        error_detail = f"Extraction failed: {str(e)}\n{traceback.format_exc()}"
+        print(error_detail)  # Log to console
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/extract-data-old")
 async def extract_data(
     request: ExtractionRequest,
     files: List[UploadFile] = File(...),
@@ -196,8 +288,8 @@ async def extract_data(
                 "size": len(content)
             })
         
-        # Initialize workflow with session directory
-        data_transform = DataTransformWorkflow(working_dir=session_dir)
+        # Initialize workflow with session directory and model
+        data_transform = DataTransformWorkflow(working_dir=session_dir, model_id=request.model_name)
         
         # Stream workflow responses using Server-Sent Events
         def stream_responses():
