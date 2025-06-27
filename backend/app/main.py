@@ -1,361 +1,465 @@
-# app/main.py
+"""
+Minimal FastAPI API layer for IntelliExtract.
+Direct workflow usage with no custom abstractions - let Agno handle complexity.
+"""
 import os
 import uuid
-import time
-import glob
-import shutil
-import logging
-import tempfile
-import threading
 import asyncio
-from contextlib import asynccontextmanager
-from fastapi import FastAPI, HTTPException, Request, BackgroundTasks
-from fastapi.responses import FileResponse, JSONResponse
-from fastapi.concurrency import run_in_threadpool
+from pathlib import Path
+from typing import List, Dict, Any, Optional
+
+# Load environment variables
+from dotenv import load_dotenv
+# Load from parent directory .env file
+env_path = Path(__file__).parent.parent.parent / '.env'
+load_dotenv(dotenv_path=env_path)
+
+from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks
+from fastapi.responses import StreamingResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.exceptions import RequestValidationError
+from pydantic import BaseModel
 
-from . import services
-from .main_schemas import ProcessRequest, ProcessResponse, SystemMetrics
-from .core.config import settings
-from .routers import extraction_router, generation_router, models_router, cache_router, agents_router
-from .routers.monitoring import router as monitoring_router
-from .routers.websocket import router as websocket_router
-
-# --- Application State and Logging ---
-app_state = {}
-
-logging.basicConfig(level=settings.LOG_LEVEL, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
+# Import our Agno-native workflows
+from .workflows.data_transform import DataTransformWorkflow
+from .workflows.prompt_engineer import PromptEngineerWorkflow, ExtractionSchema
 
 
-# --- Lifespan Management (Startup and Shutdown) ---
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    """Handles application startup and shutdown events."""
-    # Startup - Use configured AGENT_TEMP_DIR if available, otherwise create temp directory
-    if settings.AGENT_TEMP_DIR and os.path.exists(os.path.dirname(settings.AGENT_TEMP_DIR)):
-        app_state["TEMP_DIR"] = settings.AGENT_TEMP_DIR
-        os.makedirs(app_state["TEMP_DIR"], exist_ok=True)
-        logger.info(f"Using configured AGENT_TEMP_DIR: {app_state['TEMP_DIR']}")
-    else:
-        app_state["TEMP_DIR"] = tempfile.mkdtemp(prefix=settings.TEMP_DIR_PREFIX)
-        logger.info(f"Using system temp directory: {app_state['TEMP_DIR']}")
-    app_state["TEMP_FILES"] = {}
-    app_state["METRICS"] = {
-        'total_requests': 0, 'successful_conversions': 0, 'ai_conversions': 0,
-        'direct_conversions': 0, 'failed_conversions': 0,
-        'average_processing_time': 0.0
-    }
-    app_state["LOCK"] = threading.Lock()
-    logger.info(f"Application startup complete. Temp directory: {app_state['TEMP_DIR']}")
-    
-    yield  # Application is now running
-    
-    # Shutdown
-    logger.info("Application shutdown. Cleaning up temp directory...")
-    # Clean up agent pool to free memory
-    services.cleanup_agent_pool()
-    
-    # Only remove temp directory if it's not the configured AGENT_TEMP_DIR
-    if app_state["TEMP_DIR"] != settings.AGENT_TEMP_DIR:
-        shutil.rmtree(app_state["TEMP_DIR"])
-        logger.info("System temp directory cleaned up.")
-    else:
-        logger.info("Configured AGENT_TEMP_DIR preserved (not cleaned up).")
-    logger.info("Cleanup complete.")
+# Pydantic models for API requests
+class ConfigRequest(BaseModel):
+    requirements: str
+    sample_documents: Optional[List[str]] = None
 
+
+class ExtractionRequest(BaseModel):
+    request: str
+    session_id: Optional[str] = None
+
+
+# Initialize FastAPI app
 app = FastAPI(
-    title=settings.APP_TITLE,
-    version=settings.APP_VERSION,
-    lifespan=lifespan
+    title="IntelliExtract API",
+    description="AI-powered data extraction using Agno workflows",
+    version="2.0.0"
 )
-
-# Add custom validation error handler
-@app.exception_handler(RequestValidationError)
-async def validation_exception_handler(request: Request, exc: RequestValidationError):
-    """Custom validation error handler to provide better error messages."""
-    logger.error(f"Validation error for {request.url}: {exc.errors()}")
-    
-    # Convert error details to be JSON serializable
-    error_details = []
-    for error in exc.errors():
-        error_detail = {
-            "type": error.get("type"),
-            "location": error.get("loc"),
-            "message": error.get("msg"),
-            "input": str(error.get("input", ""))[:500] + "..." if len(str(error.get("input", ""))) > 500 else str(error.get("input", ""))  # Truncate long inputs
-        }
-        error_details.append(error_detail)
-    
-    return JSONResponse(
-        status_code=422,
-        content={
-            "detail": error_details,
-            "url": str(request.url)
-        }
-    )
 
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:3001", "http://localhost:9002", "http://localhost:3003"],  # Frontend URLs
+    allow_origins=["*"],  # Configure as needed for production
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Include new routers for AI functionality
-app.include_router(extraction_router)
-app.include_router(generation_router)
-app.include_router(models_router)
-app.include_router(cache_router)
-app.include_router(agents_router)
-app.include_router(monitoring_router)
-app.include_router(websocket_router)
+# Global settings
+TEMP_DIR = os.environ.get("AGENT_TEMP_DIR", "/tmp/intelliextract")
+Path(TEMP_DIR).mkdir(parents=True, exist_ok=True)
 
-# --- Utility Functions ---
-def update_metrics(processing_time: float, method: str, success: bool):
-    with app_state["LOCK"]:
-        metrics = app_state["METRICS"]
-        metrics['total_requests'] += 1
-        if success:
-            metrics['successful_conversions'] += 1
-            if method == 'ai':
-                metrics['ai_conversions'] += 1
-            else:
-                metrics['direct_conversions'] += 1
-            
-            total_time = metrics['average_processing_time'] * (metrics['successful_conversions'] - 1)
-            metrics['average_processing_time'] = (total_time + processing_time) / metrics['successful_conversions']
-        else:
-            metrics['failed_conversions'] += 1
 
-# --- API Endpoints ---
-@app.post("/process", response_model=ProcessResponse)
-async def process_json_data(fastapi_request: Request, request: ProcessRequest, background_tasks: BackgroundTasks):
-    start_time = time.time()
-    processing_method = "direct"  # Default method
-    
-    # Create a unique temp directory for THIS request to avoid conflicts
-    request_id = str(uuid.uuid4())[:8]
-    request_temp_dir = os.path.join(app_state["TEMP_DIR"], f"request_{request_id}")
-    os.makedirs(request_temp_dir, exist_ok=True)
-    
-    logger.info(f"Created isolated temp directory for request: {request_temp_dir}")
-    
-    # Get all Excel files before processing in THIS request's directory
-    files_before = set()
-    patterns = [
-        os.path.join(request_temp_dir, "*.xlsx"),
-        os.path.join(request_temp_dir, "**", "*.xlsx"),
-    ]
-    for pattern in patterns:
-        files_before.update(glob.glob(pattern, recursive=True))
-    
-    logger.info(f"Files before processing in {request_temp_dir}: {list(files_before)}")
-    
-    # Schedule cleanup of request directory and agents after processing with delay
-    def cleanup_request_resources():
-        try:
-            # Use configurable delay from settings
-            import time
-            time.sleep(settings.CLEANUP_DELAY_SECONDS)  # Configurable delay before cleanup (default: 5 minutes)
-            
-            # Clean up temp directory
-            if os.path.exists(request_temp_dir):
-                shutil.rmtree(request_temp_dir)
-                logger.info(f"Cleaned up request temp directory: {request_temp_dir}")
-            
-            # Note: Agents are now pooled by model and reused across requests
-            # No per-request cleanup needed - agents persist for efficiency
-            logger.debug(f"Agent pool maintained for reuse (size: {len(services.AGENT_POOL)})")
-                
-        except Exception as e:
-            logger.warning(f"Failed to cleanup request resources for {request_temp_dir}: {e}")
-    
-    background_tasks.add_task(cleanup_request_resources)
-
+@app.post("/api/generate-config", response_model=Dict[str, Any])
+async def generate_config(request: ConfigRequest):
+    """
+    Generate extraction configuration using PromptEngineerWorkflow.
+    Direct workflow usage - no custom abstractions.
+    """
     try:
-        # --- AI Processing Logic ---
-        if request.processing_mode in ["auto", "ai_only"]:
-            try:
-                                # Create a cancellation event that can be triggered if the client disconnects
-                cancellation_event = asyncio.Event()
-
-                async def check_disconnect():
-                    while True:
-                        if await fastapi_request.is_disconnected():
-                            logger.warning("Client disconnected, cancelling workflow.")
-                            cancellation_event.set()
-                            break
-                        await asyncio.sleep(0.1)
-
-                disconnect_task = asyncio.create_task(check_disconnect())
-
-                try:
-                    workflow = services.FinancialReportWorkflow(
-                        temp_dir=request_temp_dir,
-                        model_id=request.model
-                    )
-                    # The workflow's run method is a generator, so we need to iterate through it.
-                    # We'll run it in a thread pool since the underlying agent calls are blocking.
-                    final_excel_path = None
-                    
-                    def run_workflow_sync():
-                        """Run the workflow synchronously and collect all responses"""
-                        responses = []
-                        try:
-                            for response in workflow.run_workflow(request.json_data, cancellation_event):
-                                responses.append(response)
-                        except Exception as e:
-                            logger.error(f"Workflow execution error: {e}")
-                            raise
-                        return responses
-                    
-                    # We await the result of the threadpool execution, which will be a list of responses
-                    responses = await run_in_threadpool(run_workflow_sync)
-                    for response in responses:
-                        if response.content:
-                            final_excel_path = response.content
-
-                    if not final_excel_path:
-                        raise Exception("Workflow did not produce a file path.")
-
-                finally:
-                    disconnect_task.cancel()
-
-                ai_response_content = "Agentic workflow completed."
-                actual_session_id = request.session_id
-
-                logger.info(f"AI processing completed. Verifying file existence...")
-                if final_excel_path and os.path.exists(final_excel_path):
-                    logger.info(f"Found generated file: {final_excel_path}")
-                    processing_method = "ai"
-                    file_id = str(uuid.uuid4())
-                    original_filename = os.path.basename(final_excel_path)
-
-                    with app_state["LOCK"]:
-                        app_state["TEMP_FILES"][file_id] = {'path': final_excel_path, 'filename': original_filename}
-
-                    processing_time = time.time() - start_time
-                    update_metrics(processing_time, processing_method, True)
-
-                    return ProcessResponse(
-                        success=True, file_id=file_id, file_name=original_filename,
-                        download_url=f"/download/{file_id}", ai_analysis=ai_response_content,
-                        processing_method=processing_method, processing_time=processing_time,
-                        data_size=len(request.json_data),
-                        user_id=request.user_id or f"user_{request_id}",
-                        session_id=actual_session_id
-                    )
-
-                logger.warning(f"AI processing completed but no file was found. Falling back to direct conversion.")
-                if request.processing_mode == "ai_only":
-                    raise HTTPException(status_code=500, detail="AI processing was requested, but no file was generated.")
-
-            except asyncio.CancelledError:
-                logger.warning("AI processing was cancelled by the user.")
-                # Do not fall back, just raise a specific error or return a message
-                raise HTTPException(status_code=499, detail="AI processing cancelled by client")
-            except Exception as e:
-                logger.warning(f"AI processing failed: {e}. Falling back to direct conversion.")
-                if request.processing_mode == "ai_only":
-                    raise HTTPException(status_code=500, detail=f"AI-only processing failed: {e}")
-
-        # --- Direct Conversion (Fallback or direct_only mode) ---
-        logger.info("Using direct conversion...")
-        # Use async version for better performance with isolated temp directory
-        file_id, xlsx_filename, file_path = await services.direct_json_to_excel_async(
-            request.json_data, request.file_name, request.chunk_size, request_temp_dir
-        )
+        # Initialize workflow (lightweight - ~3μs in Agno)
+        prompt_engineer = PromptEngineerWorkflow()
         
-        with app_state["LOCK"]:
-            app_state["TEMP_FILES"][file_id] = {'path': file_path, 'filename': xlsx_filename}
-
-        processing_time = time.time() - start_time
-        update_metrics(processing_time, processing_method, True)
-
-        return ProcessResponse(
-            success=True, file_id=file_id, file_name=xlsx_filename,
-            download_url=f"/download/{file_id}", processing_method=processing_method,
-            processing_time=processing_time, data_size=len(request.json_data),
-            user_id=request.user_id or f"user_{request_id}",  # Return user_id for consistency
-            session_id=request.session_id or f"session_{request_id}"  # Return session_id for direct conversions
-        )
-
+        # Single agent call returns structured data automatically
+        if request.sample_documents:
+            config: ExtractionSchema = prompt_engineer.run_with_examples(
+                request.requirements,
+                request.sample_documents
+            )
+        else:
+            config: ExtractionSchema = prompt_engineer.run(request.requirements)
+        
+        # Return Pydantic model as dict - no custom serialization needed
+        return config.model_dump()
+        
     except Exception as e:
-        logger.error(f"Processing failed: {e}", exc_info=True)
-        update_metrics(time.time() - start_time, processing_method, False)
-        raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {e}")
+        # Minimal error handling - let FastAPI handle HTTP errors
+        raise HTTPException(status_code=500, detail=f"Configuration generation failed: {str(e)}")
 
 
-@app.get("/download/{file_id}")
-async def download_file(file_id: str):
-    with app_state["LOCK"]:
-        file_info = app_state["TEMP_FILES"].get(file_id)
-    
-    if not file_info or not os.path.exists(file_info['path']):
-        raise HTTPException(status_code=404, detail="File not found or has expired.")
+@app.post("/api/generate-unified-config", response_model=Dict[str, Any])
+async def generate_unified_config(request: Dict[str, Any]):
+    """
+    Generate unified extraction configuration (frontend-compatible endpoint).
+    Maps frontend parameters to PromptEngineerWorkflow.
+    """
+    try:
+        # Initialize workflow
+        prompt_engineer = PromptEngineerWorkflow()
         
-    return FileResponse(
-        path=file_info['path'],
-        filename=file_info['filename'],
-        media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-    )
+        # Map frontend parameters to backend format
+        requirements = request.get("user_intent", "")
+        sample_documents = request.get("sample_data", "").split("\n") if request.get("sample_data") else None
+        
+        if not requirements:
+            raise HTTPException(status_code=400, detail="user_intent is required")
+        
+        # Generate configuration
+        if sample_documents and any(doc.strip() for doc in sample_documents):
+            config: ExtractionSchema = prompt_engineer.run_with_examples(
+                requirements,
+                [doc.strip() for doc in sample_documents if doc.strip()]
+            )
+        else:
+            config: ExtractionSchema = prompt_engineer.run(requirements)
+        
+        # Convert to frontend format
+        result = config.model_dump()
+        
+        # Add additional fields expected by frontend
+        return {
+            "schema": result.get("json_schema", "{}"),
+            "system_prompt": result.get("system_prompt", ""),
+            "user_prompt_template": result.get("user_prompt_template", ""),
+            "examples": result.get("examples", []),
+            "reasoning": "Configuration generated successfully using Agno PromptEngineerWorkflow",
+            "cost": 0.001,  # Placeholder cost
+            "tokens_used": 1000  # Placeholder token count
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Unified configuration generation failed: {str(e)}")
 
 
-@app.get("/metrics", response_model=SystemMetrics)
-async def get_system_metrics():
-    with app_state["LOCK"]:
-        metrics = app_state["METRICS"].copy()
-        active_files = len(app_state["TEMP_FILES"])
+@app.post("/api/refine-config", response_model=Dict[str, Any])
+async def refine_config(
+    current_config: Dict[str, Any],
+    feedback: str
+):
+    """
+    Refine existing configuration based on feedback.
+    """
+    try:
+        prompt_engineer = PromptEngineerWorkflow()
+        
+        # Convert dict back to Pydantic model
+        config_obj = ExtractionSchema(**current_config)
+        
+        # Refine configuration
+        refined_config = prompt_engineer.refine_configuration(config_obj, feedback)
+        return refined_config.model_dump()
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Configuration refinement failed: {str(e)}")
 
-    success_rate = (metrics['successful_conversions'] / max(metrics['total_requests'], 1)) * 100
+
+@app.post("/api/extract-data")
+async def extract_data(
+    request: ExtractionRequest,
+    files: List[UploadFile] = File(...),
+    background_tasks: BackgroundTasks = None
+):
+    """
+    Extract data and generate Excel report with streaming responses.
+    Uses Agno's native streaming - Iterator[RunResponse] -> SSE.
+    """
     
-    return SystemMetrics(
-        total_requests=metrics['total_requests'],
-        successful_conversions=metrics['successful_conversions'],
-        ai_conversions=metrics['ai_conversions'],
-        direct_conversions=metrics['direct_conversions'],
-        failed_conversions=metrics['failed_conversions'],
-        success_rate=round(success_rate, 2),
-        average_processing_time=round(metrics['average_processing_time'], 2),
-        active_files=active_files,
-        temp_directory=app_state["TEMP_DIR"]
+    # Create unique session directory
+    session_id = request.session_id or str(uuid.uuid4())
+    session_dir = os.path.join(TEMP_DIR, f"session_{session_id}")
+    Path(session_dir).mkdir(parents=True, exist_ok=True)
+    
+    # Save uploaded files to session directory
+    saved_files = []
+    try:
+        for file in files:
+            file_path = os.path.join(session_dir, file.filename or f"file_{uuid.uuid4().hex[:8]}")
+            with open(file_path, "wb") as f:
+                content = await file.read()
+                f.write(content)
+            saved_files.append({
+                "name": file.filename,
+                "path": file_path,
+                "type": file.content_type,
+                "size": len(content)
+            })
+        
+        # Initialize workflow with session directory
+        data_transform = DataTransformWorkflow(working_dir=session_dir)
+        
+        # Stream workflow responses using Server-Sent Events
+        def stream_responses():
+            """
+            Stream Agno workflow responses as SSE.
+            Direct Iterator[RunResponse] -> SSE conversion.
+            """
+            try:
+                # Run workflow with streaming - pure Python iterator
+                for response in data_transform.run(request.request, saved_files):
+                    # Convert RunResponse to SSE format
+                    if hasattr(response, 'content') and response.content:
+                        # SSE format: data: {content}\n\n
+                        yield f"data: {response.content}\n\n"
+                
+                # Send completion event
+                yield f"data: {{\"status\": \"completed\", \"session_id\": \"{session_id}\"}}\n\n"
+                
+            except Exception as e:
+                # Stream error as SSE
+                yield f"data: {{\"error\": \"Workflow failed: {str(e)}\"}}\n\n"
+        
+        # Schedule cleanup as background task
+        if background_tasks:
+            background_tasks.add_task(cleanup_session, session_dir, delay_seconds=300)  # 5 minutes
+        
+        # Return streaming response
+        return StreamingResponse(
+            stream_responses(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Session-ID": session_id
+            }
+        )
+        
+    except Exception as e:
+        # Cleanup on immediate failure
+        cleanup_session_sync(session_dir)
+        raise HTTPException(status_code=500, detail=f"Data extraction failed: {str(e)}")
+
+
+@app.get("/api/download-report/{session_id}")
+async def download_report(session_id: str, filename: Optional[str] = None):
+    """
+    Download generated Excel report from session directory.
+    """
+    session_dir = os.path.join(TEMP_DIR, f"session_{session_id}")
+    
+    # Look for Excel files in session directory
+    excel_files = list(Path(session_dir).glob("*.xlsx"))
+    
+    if not excel_files:
+        raise HTTPException(status_code=404, detail="No Excel report found for this session")
+    
+    # Use specified filename or first found Excel file
+    if filename:
+        report_path = os.path.join(session_dir, filename)
+        if not os.path.exists(report_path):
+            raise HTTPException(status_code=404, detail=f"File {filename} not found")
+    else:
+        report_path = str(excel_files[0])
+    
+    # Return file response
+    return FileResponse(
+        path=report_path,
+        filename=filename or "extracted_data.xlsx",
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
+
+
+@app.get("/api/sessions/{session_id}/files")
+async def list_session_files(session_id: str):
+    """
+    List files in a session directory.
+    """
+    session_dir = os.path.join(TEMP_DIR, f"session_{session_id}")
+    
+    if not os.path.exists(session_dir):
+        raise HTTPException(status_code=404, detail="Session not found")
+    
+    files = []
+    for file_path in Path(session_dir).iterdir():
+        if file_path.is_file():
+            files.append({
+                "name": file_path.name,
+                "size": file_path.stat().st_size,
+                "type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" if file_path.suffix == ".xlsx" else "unknown"
+            })
+    
+    return {"session_id": session_id, "files": files}
+
+
+@app.delete("/api/sessions/{session_id}")
+async def cleanup_session_endpoint(session_id: str, background_tasks: BackgroundTasks):
+    """
+    Manually cleanup a session directory.
+    """
+    session_dir = os.path.join(TEMP_DIR, f"session_{session_id}")
+    
+    if not os.path.exists(session_dir):
+        raise HTTPException(status_code=404, detail="Session not found")
+    
+    # Schedule cleanup as background task
+    background_tasks.add_task(cleanup_session_sync, session_dir)
+    
+    return {"message": f"Session {session_id} cleanup scheduled"}
+
+
+@app.get("/api/models")
+async def get_models():
+    """
+    Get available models for the frontend.
+    Returns hardcoded list of supported models since Agno handles model selection internally.
+    """
+    models = [
+        {
+            "id": "gemini-1.5-flash",
+            "displayName": "Gemini 1.5 Flash",
+            "description": "Fast, cost-effective model for most extraction tasks",
+            "provider": "google",
+            "supportedIn": ["extraction", "generation", "transform"],
+            "capabilities": {
+                "vision": True,
+                "audio": False,
+                "video": False,
+                "contextCaching": True,
+                "functionCalling": True,
+                "structuredOutputs": True
+            },
+            "limits": {
+                "maxInputTokens": 1000000,
+                "maxOutputTokens": 8192,
+                "contextWindow": 1000000
+            },
+            "pricing": {
+                "input": 0.000075,
+                "output": 0.0003,
+                "currency": "USD",
+                "unit": "1K tokens"
+            },
+            "status": "active"
+        },
+        {
+            "id": "gemini-1.5-pro",
+            "displayName": "Gemini 1.5 Pro",
+            "description": "High-quality model for complex extraction and reasoning tasks",
+            "provider": "google",
+            "supportedIn": ["extraction", "generation", "transform"],
+            "capabilities": {
+                "vision": True,
+                "audio": False,
+                "video": False,
+                "contextCaching": True,
+                "functionCalling": True,
+                "structuredOutputs": True
+            },
+            "limits": {
+                "maxInputTokens": 2000000,
+                "maxOutputTokens": 8192,
+                "contextWindow": 2000000
+            },
+            "pricing": {
+                "input": 0.00125,
+                "output": 0.005,
+                "currency": "USD",
+                "unit": "1K tokens"
+            },
+            "status": "active"
+        },
+        {
+            "id": "gemini-2.0-flash-exp",
+            "displayName": "Gemini 2.0 Flash (Experimental)",
+            "description": "Latest experimental model with improved capabilities",
+            "provider": "google",
+            "supportedIn": ["extraction", "generation", "transform"],
+            "capabilities": {
+                "vision": True,
+                "audio": True,
+                "video": False,
+                "contextCaching": True,
+                "functionCalling": True,
+                "structuredOutputs": True
+            },
+            "limits": {
+                "maxInputTokens": 1000000,
+                "maxOutputTokens": 8192,
+                "contextWindow": 1000000
+            },
+            "pricing": {
+                "input": 0.000075,
+                "output": 0.0003,
+                "currency": "USD",
+                "unit": "1K tokens"
+            },
+            "status": "experimental"
+        }
+    ]
+    
+    return {"models": models}
+
+
+@app.get("/health")
+async def health():
+    """
+    Health check endpoint.
+    """
+    return {
+        "status": "healthy",
+        "framework": "agno",
+        "api_version": "2.0.0",
+        "temp_dir": TEMP_DIR,
+        "temp_dir_exists": os.path.exists(TEMP_DIR)
+    }
 
 
 @app.get("/")
 async def root():
-    return {"message": "Welcome to the IntelliExtract Agno AI API for Financial Document Processing. See /docs for more info."}
-
-
-@app.get("/health")
-async def health_check():
-    """Health check endpoint for monitoring and load balancers."""
-    health_status = {
-        "status": "healthy",
-        "version": settings.APP_VERSION,
-        "temp_directory_exists": os.path.exists(app_state.get("TEMP_DIR", "")),
-        "agent_pool_size": len(getattr(services, 'AGENT_POOL', {})),
-        "active_files": len(app_state.get("TEMP_FILES", {})),
+    """
+    Root endpoint.
+    """
+    return {
+        "message": "IntelliExtract API - AI-powered data extraction using Agno workflows",
+        "docs": "/docs",
+        "health": "/health"
     }
+
+
+# Utility functions for cleanup
+async def cleanup_session(session_dir: str, delay_seconds: int = 0):
+    """
+    Async cleanup function for background tasks.
+    """
+    if delay_seconds > 0:
+        await asyncio.sleep(delay_seconds)
     
-    # Check Google API key availability
-    health_status["google_api_configured"] = bool(settings.GOOGLE_API_KEY)
-    
-    # Check temp directory is writable
+    cleanup_session_sync(session_dir)
+
+
+def cleanup_session_sync(session_dir: str):
+    """
+    Synchronous cleanup function.
+    """
     try:
-        test_file = os.path.join(app_state.get("TEMP_DIR", "/tmp"), "health_check.tmp")
-        with open(test_file, "w") as f:
-            f.write("test")
-        os.remove(test_file)
-        health_status["temp_directory_writable"] = True
-    except:
-        health_status["temp_directory_writable"] = False
-        health_status["status"] = "degraded"
-    
-    # Return appropriate status code
-    status_code = 200 if health_status["status"] == "healthy" else 503
-    return JSONResponse(content=health_status, status_code=status_code)
+        import shutil
+        if os.path.exists(session_dir):
+            shutil.rmtree(session_dir)
+            print(f"Cleaned up session directory: {session_dir}")
+    except Exception as e:
+        print(f"Failed to cleanup session directory {session_dir}: {e}")
+
+
+# App startup event
+@app.on_event("startup")
+async def startup_event():
+    """
+    Application startup - ensure temp directory exists.
+    """
+    Path(TEMP_DIR).mkdir(parents=True, exist_ok=True)
+    print(f"IntelliExtract API started - Temp directory: {TEMP_DIR}")
+
+
+# App shutdown event  
+@app.on_event("shutdown")
+async def shutdown_event():
+    """
+    Application shutdown - optional cleanup.
+    """
+    print("IntelliExtract API shutting down")
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(
+        "app.main:app",
+        host="0.0.0.0",
+        port=8000,
+        reload=True,
+        log_level="info"
+    )

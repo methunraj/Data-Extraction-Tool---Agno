@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { request } from 'undici';
 
 export async function POST(req: NextRequest) {
   try {
@@ -7,7 +6,6 @@ export async function POST(req: NextRequest) {
     const { extractedData, fileName, llmProvider, model, apiKey, temperature } = body;
 
     // Validate required fields
-    // For googleAI provider, API key might be optional (using default key)
     if (!extractedData || !fileName || !model) {
       return NextResponse.json(
         { success: false, error: 'Missing required fields: extractedData, fileName, or model' },
@@ -15,94 +13,114 @@ export async function POST(req: NextRequest) {
       );
     }
     
-    // Use API key from request or get from environment for googleAI
-    const finalApiKey = apiKey || (llmProvider === 'googleAI' ? process.env.GOOGLE_API_KEY : null);
-    
-    console.log('API Key Debug:', {
-      provided: !!apiKey,
-      fromEnv: !!process.env.GOOGLE_API_KEY,
-      llmProvider,
-      hasKey: !!finalApiKey
-    });
+    // Use API key from request or environment
+    const finalApiKey = apiKey || process.env.GOOGLE_API_KEY;
     
     if (!finalApiKey) {
       return NextResponse.json(
-        { success: false, error: 'API key is required. Please set your Google API key in the LLM configuration.' },
+        { success: false, error: 'API key is required. Please set your Google API key.' },
         { status: 400 }
       );
     }
 
-    // Forward request to Python backend
-    const pythonBackendUrl = process.env.AGNO_BACKEND_URL || 'http://localhost:8000';
+    // Connect to Agno backend
+    const backendUrl = process.env.AGNO_BACKEND_URL || 'http://localhost:8000';
     
-    console.log(`Attempting to connect to Python backend at: ${pythonBackendUrl}`);
+    console.log(`Connecting to Agno backend at: ${backendUrl}`);
     
     try {
-      console.log('Starting Agno processing request with 20 minute timeout...');
+      // Create form data for file upload to match backend expectations
+      const formData = new FormData();
       
-      // Create an AbortController to manage the request lifetime
-      const controller = new AbortController();
-      req.signal.addEventListener('abort', () => controller.abort());
+      // Create a blob from the extracted data to simulate file upload
+      const dataBlob = new Blob([JSON.stringify(extractedData, null, 2)], { 
+        type: 'application/json' 
+      });
+      formData.append('files', dataBlob, fileName.replace(/\.[^/.]+$/, '.json'));
+      
+      // Add extraction request
+      formData.append('request', JSON.stringify({
+        request: `Process this document data: ${JSON.stringify(extractedData).substring(0, 500)}...`,
+        session_id: undefined // Let backend generate session ID
+      }));
 
-      // Use undici with proper timeout controls
-      const response = await request(`${pythonBackendUrl}/process`, {
+      // Call Agno backend streaming endpoint
+      const response = await fetch(`${backendUrl}/api/extract-data`, {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
+          // Don't set Content-Type - let browser set it for FormData
         },
-        body: JSON.stringify({
-          json_data: extractedData,  // Changed from extracted_data to match Python API
-          file_name: fileName,
-          description: `Extracted from ${fileName} using ${llmProvider}/${model}`,
-          api_key: finalApiKey,  // Use the resolved API key
-          model: model  // Python backend will use this model for Agno processing
-        }),
-        // Assign the signal to the request
-        signal: controller.signal,
+        body: formData,
+        signal: req.signal,
       });
 
-      if (response.statusCode !== 200) {
-        const errorText = await response.body.text();
-        console.error('Python backend error:', errorText);
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('Agno backend error:', errorText);
         return NextResponse.json(
-          { success: false, error: 'Agno processing failed' },
-          { status: 500 }
+          { success: false, error: 'Data processing failed' },
+          { status: response.status }
         );
       }
 
-      const result = await response.body.json() as any;
-      
-      // If successful, add the backend URL to the download URL for frontend access
-      if (result.success && result.download_url) {
-        // The download URL is already properly formatted as /download/{file_id}
-        result.download_url = `${pythonBackendUrl}${result.download_url}`;
-        
-        // Add token usage information if needed (Python backend doesn't currently provide this)
-        // You can add token tracking in the Python backend if needed
-        result.token_usage = {
-          input_tokens: 0,  // Placeholder - implement in Python if needed
-          output_tokens: 0,
-          total_tokens: 0
-        };
-        
-        // Add processing cost if needed
-        result.processingCost = 0;  // Placeholder - calculate based on actual usage
+      // Handle streaming response
+      if (response.headers.get('content-type')?.includes('text/event-stream')) {
+        // For streaming responses, we'll collect all events and return final result
+        const reader = response.body?.getReader();
+        const decoder = new TextDecoder();
+        let result = '';
+        let sessionId = '';
+
+        if (reader) {
+          try {
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              
+              const chunk = decoder.decode(value);
+              const lines = chunk.split('\n');
+              
+              for (const line of lines) {
+                if (line.startsWith('data: ')) {
+                  const data = line.slice(6);
+                  try {
+                    const parsed = JSON.parse(data);
+                    if (parsed.status === 'completed' && parsed.session_id) {
+                      sessionId = parsed.session_id;
+                    }
+                  } catch {
+                    // Append text data
+                    result += data + '\n';
+                  }
+                }
+              }
+            }
+          } finally {
+            reader.releaseLock();
+          }
+        }
+
+        return NextResponse.json({
+          success: true,
+          message: 'Data processed successfully',
+          result: result.trim(),
+          session_id: sessionId,
+          download_url: sessionId ? `${backendUrl}/api/download-report/${sessionId}` : null,
+          token_usage: {
+            input_tokens: 0,
+            output_tokens: 0, 
+            total_tokens: 0
+          },
+          processingCost: 0
+        });
+      } else {
+        // Handle non-streaming response
+        const result = await response.json();
+        return NextResponse.json(result);
       }
-      
-      return NextResponse.json(result);
       
     } catch (fetchError) {
-      // Handle timeout and other fetch errors
-      
-      if (fetchError instanceof Error && (fetchError.name === 'AbortError' || fetchError.name === 'DOMException')) {
-        console.error('Python backend request was aborted or timed out');
-        return NextResponse.json(
-          { success: false, error: 'Processing was cancelled or timed out' },
-          { status: 499 } // 499 Client Closed Request
-        );
-      }
-      
-      console.error('Python backend fetch error:', fetchError);
+      console.error('Backend connection error:', fetchError);
       return NextResponse.json(
         { success: false, error: 'Failed to connect to processing service' },
         { status: 500 }
@@ -110,7 +128,7 @@ export async function POST(req: NextRequest) {
     }
 
   } catch (error) {
-    console.error('Agno API route error:', error);
+    console.error('API route error:', error);
     return NextResponse.json(
       { success: false, error: 'Internal server error' },
       { status: 500 }

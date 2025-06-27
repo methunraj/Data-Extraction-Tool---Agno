@@ -441,7 +441,103 @@ class BackendAIService {
     return response.status === 200;
   }
 
-  // Agno Process API (existing functionality)
+  // Agno Backend APIs - Updated for new endpoints
+  
+  /** Generate extraction configuration using PromptEngineerWorkflow */
+  async generateExtractionConfig(params: {
+    requirements: string;
+    sampleDocuments?: string[];
+    apiKey?: string;
+  }): Promise<any> {
+    const response = await fetch('/api/generate-config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        requirements: params.requirements,
+        sampleDocuments: params.sampleDocuments,
+        apiKey: params.apiKey
+      })
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Config generation failed');
+    }
+
+    return response.json();
+  }
+
+  /** Upload files and extract data using DataTransformWorkflow */
+  async uploadAndExtract(params: {
+    files: File[];
+    extractionRequest: string;
+    apiKey?: string;
+    onProgress?: (chunk: string) => void;
+  }): Promise<any> {
+    const formData = new FormData();
+    
+    // Add files
+    params.files.forEach(file => {
+      formData.append('files', file);
+    });
+    
+    // Add request
+    formData.append('request', params.extractionRequest);
+    if (params.apiKey) {
+      formData.append('apiKey', params.apiKey);
+    }
+
+    const response = await fetch('/api/upload-extract', {
+      method: 'POST',
+      body: formData
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'File processing failed');
+    }
+
+    // Handle streaming response
+    if (response.headers.get('content-type')?.includes('text/event-stream')) {
+      const reader = response.body?.getReader();
+      const decoder = new TextDecoder();
+      let result = '';
+
+      if (reader) {
+        try {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            
+            const chunk = decoder.decode(value);
+            const lines = chunk.split('\n');
+            
+            for (const line of lines) {
+              if (line.startsWith('data: ')) {
+                const data = line.slice(6);
+                if (params.onProgress) {
+                  params.onProgress(data);
+                }
+                result += data + '\n';
+              }
+            }
+          }
+        } finally {
+          reader.releaseLock();
+        }
+      }
+
+      return {
+        success: true,
+        result: result.trim(),
+        streaming: true
+      };
+    } else {
+      return response.json();
+    }
+  }
+
+  /** Process extracted data using Agno workflows */
   async processWithAgno(params: {
     extractedData: any;
     fileName: string;
@@ -449,50 +545,31 @@ class BackendAIService {
     model: string;
     apiKey?: string;
     temperature?: number;
-    sessionId?: string;
-    userId?: string;
   }): Promise<any> {
-    const response = await this.fetchWithError<any>(
-      '/process',
-      {
-        method: 'POST',
-        body: JSON.stringify({
-          json_data: params.extractedData,
-          file_name: params.fileName,
-          processing_mode: 'ai_only',
-          session_id: params.sessionId,
-          user_id: params.userId,
-          // Model selection will be handled by backend based on configuration
-        }),
-      }
-    );
-
-    if (response.error) {
-      throw new Error(response.error);
-    }
-
-    return response.data;
-  }
-
-  async processData(extractedData: string, fileName: string, agnoModel: string): Promise<any> {
-    const response = await this.fetchWithError('/api/process', {
+    const response = await fetch('/api/agno-process', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        json_data: extractedData,
-        file_name: fileName,
-        processing_mode: 'ai_only',
-        agno_model: agnoModel,
-        chunk_size: 1000
-      }),
+        extractedData: params.extractedData,
+        fileName: params.fileName,
+        llmProvider: params.llmProvider,
+        model: params.model,
+        apiKey: params.apiKey,
+        temperature: params.temperature
+      })
     });
 
     if (!response.ok) {
-      throw new Error(`Process failed: ${response.statusText}`);
+      const error = await response.json();
+      throw new Error(error.error || 'Agno processing failed');
     }
 
+    return response.json();
+  }
+
+  /** Check system health */
+  async checkHealth(): Promise<any> {
+    const response = await fetch('/api/health');
     return response.json();
   }
 }
