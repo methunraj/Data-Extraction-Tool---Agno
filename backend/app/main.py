@@ -196,13 +196,35 @@ async def extract_data_json(request: Dict[str, Any]):
         examples = request.get("examples", [])
         model_name = request.get("model_name", "gemini-2.0-flash")
         print(f"[extract-data] Received model_name: {model_name}")
+        print(f"[extract-data] Has document_text: {bool(document_text)}")
+        print(f"[extract-data] Has document_file: {bool(document_file)}")
+        if document_file:
+            print(f"[extract-data] File mime_type: {document_file.get('mime_type')}")
+            print(f"[extract-data] File data length: {len(document_file.get('data', ''))}")
         
         # Handle document content
         content = document_text
+        files = []
+        
         if not content and document_file:
-            # For now, we'll just use the text content
-            # In a full implementation, Agno would handle the file directly
-            content = "Document file provided but text extraction not implemented"
+            # Handle PDF/image files with Agno's multimodal capabilities
+            import base64
+            from agno.media import File
+            
+            mime_type = document_file.get("mime_type", "application/pdf")
+            file_data = document_file.get("data", "")
+            
+            # Create a temporary file for the PDF
+            import tempfile
+            with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp_file:
+                # Decode base64 data and write to file
+                file_bytes = base64.b64decode(file_data)
+                tmp_file.write(file_bytes)
+                tmp_file_path = tmp_file.name
+            
+            # Create Agno File object
+            files = [File(filepath=tmp_file_path)]
+            content = "Please extract data from the attached PDF document."
         
         # Create extraction agent with the selected model
         agent = Agent(
@@ -217,21 +239,39 @@ async def extract_data_json(request: Dict[str, Any]):
         )
         
         # Build the extraction prompt
-        prompt = user_prompt_template.replace("{document_text}", content)
-        prompt += f"\n\nExtract data according to this JSON schema:\n{schema_definition}"
+        if files:
+            # For PDF/image files, adjust the prompt
+            prompt = system_prompt + "\n\n"
+            prompt += user_prompt_template.replace("{document_text}", "the attached PDF document")
+            prompt += f"\n\nExtract data according to this JSON schema:\n{schema_definition}"
+        else:
+            # For text content
+            prompt = user_prompt_template.replace("{document_text}", content)
+            prompt += f"\n\nExtract data according to this JSON schema:\n{schema_definition}"
         
         if examples:
             prompt += "\n\nExamples:"
             for ex in examples:
                 prompt += f"\nInput: {ex.get('input', '')}\nOutput: {ex.get('output', '')}\n"
         
-        # Run extraction
-        response = agent.run(prompt)
+        # Run extraction with files if available
+        if files:
+            response = agent.run(prompt, files=files)
+        else:
+            response = agent.run(prompt)
         
         # Extract the content
         extracted_json = ""
         if hasattr(response, 'content'):
             extracted_json = response.content
+        
+        # Clean up temporary file if created
+        if files and 'tmp_file_path' in locals():
+            import os
+            try:
+                os.unlink(tmp_file_path)
+            except:
+                pass
         
         # Return response in expected format
         return {
