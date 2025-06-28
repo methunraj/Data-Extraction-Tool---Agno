@@ -9,8 +9,8 @@ from pathlib import Path
 from typing import Optional
 
 from agno.agent import Agent
-from agno.tools.python import PythonTools
 from agno.tools.file import FileTools
+from agno.tools.python import PythonTools
 
 
 class ExcelGeneratorAgent(Agent):
@@ -31,14 +31,14 @@ class ExcelGeneratorAgent(Agent):
             model=model,
             tools=[
                 PythonTools(
-                    base_dir=work_dir, 
+                    base_dir=Path(work_dir),
                     pip_install=True,  # Allow installing pandas/openpyxl
-                    run_code=True,     # Allow running code directly
-                    save_and_run=True, # Save code to file and run it
-                    run_files=True,    # Allow running saved files
-                    read_files=True    # Allow reading files
+                    run_code=True,  # Allow running code directly
+                    save_and_run=True,  # Save code to file and run it
+                    run_files=True,  # Allow running saved files
+                    read_files=True,  # Allow reading files
                 ),
-                FileTools(base_dir=work_dir),
+                FileTools(base_dir=Path(work_dir)),
             ],
             instructions=[
                 "You are an expert at converting JSON data to professional Excel files",
