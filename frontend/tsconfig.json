@@ -3,7 +3,7 @@
     "target": "ES2018",
     "lib": ["dom", "dom.iterable", "esnext"],
     "allowJs": true,
-    "skipLibCheck": true,
+    "skipLibCheck": true, // TODO: Set to false after running 'npm install' and fixing any type errors
     "strict": true,
     "noEmit": true,
     "esModuleInterop": true,

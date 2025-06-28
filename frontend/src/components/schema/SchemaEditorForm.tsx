@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
-// Removed unused import
+import { backendAIService } from '@/services/backend-api';
 import { Loader2, Sparkles, Save, List, Download, Trash2, UploadCloud } from 'lucide-react';
 import { useSchema, type SavedSchema } from '@/contexts/SchemaContext';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -73,12 +73,19 @@ export function SchemaEditorForm() {
     }
     startGenerationTransition(async () => {
       try {
-        // TODO: Implement schema generation using backend API
-        toast({ title: 'Not Implemented', description: 'Schema generation is not yet implemented in this component.', variant: 'destructive' });
-        return;
+        // Generate schema using backend API
+        const result = await backendAIService.generateSchema(intent);
         
-        // const result = await generateSchema({ intent });
-        // let schemaToSet = result.schema;
+        if (result.warning) {
+          toast({ 
+            title: 'Schema Generated with Warning', 
+            description: result.warning, 
+            variant: 'default' 
+          });
+        }
+        
+        let schemaToSet = result.schema;
+
         // 
         // // Use a different regex approach without the 's' flag
         // const markdownJsonMatch = schemaToSet.match(/```json\n?([\s\S]*?)\n?```/);

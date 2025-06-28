@@ -24,7 +24,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Connect to Agno backend
-    const backendUrl = process.env.AGNO_BACKEND_URL || 'http://localhost:8000';
+    const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000';
     
     console.log(`Connecting to Agno backend at: ${backendUrl}`);
     
