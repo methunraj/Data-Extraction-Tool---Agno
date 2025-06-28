@@ -483,73 +483,121 @@ async def agno_process(request: Request, background_tasks: BackgroundTasks):
 
         # Initialize Excel generation workflow
         from .agents.excel_generator import ExcelGeneratorAgent
-
         excel_agent = ExcelGeneratorAgent(
             model=get_transform_model(model_id=model_name), working_dir=session_dir
         )
+        print("[agno-process] Using ExcelGeneratorAgent")
 
-        # Read a sample of the JSON to understand structure
-        json_sample = json.dumps(extracted_data, indent=2)[:1000] + "..."
-        
-        # Generate Excel file
-        excel_prompt = f"""
-        Convert the JSON data to a professional Excel file using Python.
-        
-        Input JSON file path: {json_file_path}
-        Output Excel file path: {os.path.join(session_dir, file_name)}
-        
-        The JSON data structure looks like this:
-        {json_sample}
-        
-        The data contains financial information with nested structures including:
-        - company_identification (with headquarters, industry info)
-        - financial_metrics (revenue, net_income, gross_profit, etc. - each as arrays of observations)
-        - extraction_metadata
-        
-        Steps to follow:
-        1. First, install required packages: pandas and openpyxl
-        2. Read the JSON file at: {json_file_path}
-        3. Write a Python script that creates multiple sheets:
-           - Sheet 1: Company Information (flatten company_identification)
-           - Sheet 2: Revenue Data (from financial_metrics.revenue array)
-           - Sheet 3: Income Data (from financial_metrics.net_income array)
-           - Sheet 4: Other Financials (gross_profit, assets, etc.)
-           - Sheet 5: Metadata (extraction_metadata)
-        4. For each financial metric array, create columns for:
-           - term_used, value_as_reported, amount, currency, full_amount_calculated
-           - page_number, section_name, context_notes
-        5. Apply professional formatting:
-           - Bold headers
-           - Appropriate column widths
-           - Number formatting for financial values
-           - Currency formatting where applicable
-        6. Save the Excel file to: {os.path.join(session_dir, file_name)}
-        7. Use save_to_file_and_run to execute your script
-        
-        IMPORTANT: The output file MUST be saved at exactly: {os.path.join(session_dir, file_name)}
-        """
+        # Generate Excel file with clear, step-by-step prompt
+        excel_prompt = f"""Convert the JSON data at {json_file_path} to an Excel file at {os.path.join(session_dir, file_name)}.
+
+Follow these steps:
+
+1. Install required packages:
+   - pip_install_package pandas
+   - pip_install_package openpyxl
+
+2. Read and analyze the JSON:
+   - Use read_file to read {json_file_path}
+   - Understand the data structure
+
+3. Write a Python script that:
+   - Reads the JSON file
+   - Creates an Excel workbook with pandas
+   - Creates separate sheets for different data categories
+   - Handles nested structures properly
+   - Saves to {os.path.join(session_dir, file_name)}
+
+4. Execute your script using save_to_file_and_run
+
+5. Verify the Excel file was created successfully
+
+Remember: The JSON contains financial data with nested structures. Create appropriate sheets for company info, financial metrics, and metadata."""
 
         # Run Excel generation
         print(f"[agno-process] Running Excel generation for session {session_id}")
         print(f"[agno-process] Working directory: {session_dir}")
         print(f"[agno-process] Expected output file: {file_name}")
         
+        # Run Excel generation with proper continuation handling
+        print(f"[agno-process] Starting Excel generation for session {session_id}")
+        
         try:
+            # Initial run
             result = excel_agent.run(excel_prompt)
-            print(f"[agno-process] Agent result: {result}")
+            print(f"[agno-process] Initial run completed. Type: {type(result)}")
             
-            # Log the content if it has one
-            if hasattr(result, 'content'):
-                print(f"[agno-process] Agent response content: {result.content}")
-        except Exception as agent_error:
-            print(f"[agno-process] Agent error: {str(agent_error)}")
+            # Handle continuation using the proper pattern from documentation
+            max_continuations = 10
+            continuation_count = 0
+            
+            while continuation_count < max_continuations:
+                # Check if agent is paused (preferred method)
+                if hasattr(excel_agent, 'is_paused') and excel_agent.is_paused:
+                    print("[agno-process] Agent is paused, continuing...")
+                    result = excel_agent.continue_run()
+                    continuation_count += 1
+                    continue
+                
+                # Check status if available
+                if hasattr(result, 'status'):
+                    print(f"[agno-process] Run status: {result.status}")
+                    
+                    if result.status == "PAUSED":
+                        print("[agno-process] Status is PAUSED, continuing...")
+                        result = excel_agent.continue_run(run_response=result)
+                        continuation_count += 1
+                        continue
+                    elif result.status in ["COMPLETED", "CANCELLED"]:
+                        print(f"[agno-process] Run {result.status}")
+                        break
+                
+                # Check if Excel file was created
+                excel_path = os.path.join(session_dir, file_name)
+                if os.path.exists(excel_path):
+                    print(f"[agno-process] Success! Excel file created at: {excel_path}")
+                    break
+                
+                # If no pause/status but no file, try one more continuation
+                if continuation_count == 0:
+                    print("[agno-process] No file created yet, attempting continuation...")
+                    try:
+                        result = excel_agent.continue_run()
+                        continuation_count += 1
+                    except Exception as e:
+                        print(f"[agno-process] Continue failed: {e}")
+                        break
+                else:
+                    # No more continuations
+                    break
+            
+            # Final check for Excel file
+            excel_path = os.path.join(session_dir, file_name)
+            if not os.path.exists(excel_path):
+                # Check for any Excel files
+                excel_files = list(Path(session_dir).glob("*.xlsx"))
+                if excel_files:
+                    excel_path = str(excel_files[0])
+                    file_name = excel_files[0].name
+                    print(f"[agno-process] Found Excel file: {excel_path}")
+                else:
+                    all_files = list(Path(session_dir).iterdir())
+                    print(f"[agno-process] No Excel file created. Files: {[f.name for f in all_files]}")
+                    raise HTTPException(
+                        status_code=500,
+                        detail="Excel generation failed - no output file created"
+                    )
+                    
+        except Exception as e:
+            print(f"[agno-process] Excel generation error: {str(e)}")
             raise HTTPException(
-                status_code=500, detail=f"Excel generation agent failed: {str(agent_error)}"
+                status_code=500,
+                detail=f"Excel generation failed: {str(e)}"
             )
 
-        # Check if Excel file was created
+        # After all attempts, check if Excel file was created
         excel_path = os.path.join(session_dir, file_name)
-        print(f"[agno-process] Checking for Excel file at: {excel_path}")
+        print(f"[agno-process] Final check for Excel file at: {excel_path}")
         
         if not os.path.exists(excel_path):
             # Try to find any Excel file in the directory
@@ -565,9 +613,67 @@ async def agno_process(request: Request, background_tasks: BackgroundTasks):
                 all_files = list(Path(session_dir).iterdir())
                 print(f"[agno-process] All files in directory: {[str(f) for f in all_files]}")
                 
-                raise HTTPException(
-                    status_code=500, detail="Excel file generation failed - no .xlsx file created"
-                )
+                # One final attempt with explicit instructions
+                print("[agno-process] Making final attempt with explicit script...")
+                final_prompt = f"""No Excel file was created. Let me provide you with a complete solution.
+
+Use save_to_file_and_run with this exact script:
+
+```python
+import json
+import pandas as pd
+from openpyxl import Workbook
+from openpyxl.styles import Font, PatternFill
+from openpyxl.utils.dataframe import dataframe_to_rows
+
+# Read JSON
+with open('{json_file_path}', 'r') as f:
+    data = json.load(f)
+
+# Create workbook
+wb = Workbook()
+wb.remove(wb.active)
+
+# Sheet 1: Company Info
+ws1 = wb.create_sheet("Company Information")
+if 'company_identification' in data:
+    for key, value in data['company_identification'].items():
+        ws1.append([key.replace('_', ' ').title(), str(value)])
+
+# Sheet 2: Financial Metrics
+if 'financial_metrics' in data:
+    for metric_type, metric_list in data['financial_metrics'].items():
+        if isinstance(metric_list, list) and metric_list:
+            ws = wb.create_sheet(metric_type.replace('_', ' ').title()[:31])
+            if metric_list:
+                headers = list(metric_list[0].keys())
+                ws.append(headers)
+                for item in metric_list:
+                    ws.append([item.get(h, '') for h in headers])
+
+# Save
+wb.save('{excel_path}')
+print(f"Excel file created at: {excel_path}")
+```
+
+Execute this script now."""
+                
+                try:
+                    final_result = excel_agent.run(final_prompt)
+                    print(f"[agno-process] Final attempt result: {final_result}")
+                    
+                    # Check one more time
+                    if os.path.exists(excel_path):
+                        print(f"[agno-process] Success! Excel file created at: {excel_path}")
+                    else:
+                        raise HTTPException(
+                            status_code=500, detail="Excel file generation failed - no .xlsx file created"
+                        )
+                except Exception as e:
+                    print(f"[agno-process] Final attempt failed: {str(e)}")
+                    raise HTTPException(
+                        status_code=500, detail="Excel file generation failed - no .xlsx file created"
+                    )
 
         # Schedule cleanup
         background_tasks.add_task(

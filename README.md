@@ -2,6 +2,33 @@
 
 IntelliExtract is an enterprise-grade, full-stack application that leverages AI agents to extract, transform, and analyze data from various sources. Built with FastAPI and Next.js, it provides a robust, scalable solution for automated data processing workflows.
 
+## 🛠️ Quick Start
+
+### Server Management
+
+We provide convenient scripts to manage the application:
+
+```bash
+# Start both frontend and backend
+./start-all.sh
+
+# Stop all services
+./stop-all.sh
+
+# Start only backend
+./start-backend.sh
+
+# Stop only backend
+./stop-backend.sh
+
+# Or use the Python management script directly
+cd backend
+python manage.py start    # Start server
+python manage.py stop     # Stop server
+python manage.py restart  # Restart server
+python manage.py status   # Check status
+```
+
 ## 🚀 Key Features
 
 - **Multi-Agent Architecture**: Specialized AI agents for different data processing tasks
