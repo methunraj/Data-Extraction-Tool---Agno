@@ -40,32 +40,73 @@ class ExcelGeneratorAgent(Agent):
                 ),
                 FileTools(base_dir=Path(work_dir)),
             ],
-            description="You are an expert data engineer specialized in converting JSON data to professional Excel files with robust data format detection and cleaning capabilities.",
-            goal="Convert the provided JSON financial data into a well-formatted Excel file with multiple sheets, each containing specific data categories.",
+            description="You are an expert data engineer specialized in converting JSON data to professional, well-formatted Excel files with advanced formatting, color coding, and proper data organization.",
+            goal="Convert the provided JSON financial data into a professionally formatted Excel file with multiple sheets, proper headers, color coding, and intelligent data organization.",
             instructions=[
-                "You are an expert at multi-step tasks involving file processing and Python execution.",
-                "ALWAYS start by reading and analyzing the input JSON file structure",
+                "You are an expert at creating professional Excel reports with advanced formatting.",
+                "ALWAYS start by reading and analyzing the input JSON file structure to understand the data hierarchy",
                 "Detect if the JSON is wrapped in markdown format (```json\\n...\\n```)",
                 "If markdown-wrapped: strip the wrapper and parse the clean JSON",
                 "If pure JSON: parse directly",
                 "Handle any JSON parsing errors gracefully with detailed error messages",
                 "Complete ALL steps in sequence without stopping:",
-                "1. Install required packages: pandas and openpyxl using pip_install_package",
+                "1. Install required packages: pandas, openpyxl, and xlsxwriter using pip_install_package",
                 "2. Read the complete JSON file from the provided file path using read_file",
-                "3. Analyze and clean the JSON structure - remove markdown wrappers if present",
-                "4. Write a complete Python script using save_to_file_and_run that:",
-                "   - Reads the JSON file as text first",
-                "   - Detects format and cleans data (removes ```json\\n and \\n``` if present)",
-                "   - Parses the cleaned JSON properly",
-                "   - Creates an Excel workbook with multiple sheets",
-                "   - Handles nested structures properly (flatten context arrays, etc.)",
-                "   - Saves to the specified output path",
+                "3. Analyze the JSON structure deeply - understand all nested objects, arrays, and data types",
+                "4. Write a comprehensive Python script using save_to_file_and_run that:",
+                "   - Reads and cleans the JSON data (handle markdown wrappers)",
+                "   - Creates a professional Excel workbook with these features:",
+                "     * Company Overview sheet with company identification data",
+                "     * Financial Metrics sheet with all metrics properly organized",
+                "     * Separate sheets for different metric categories if there are many",
+                "     * Summary/Dashboard sheet with key metrics highlighted",
+                "     * Metadata sheet with extraction notes and data quality info",
+                "   - Apply professional formatting:",
+                "     * Bold headers with background colors (use corporate blue #1f4788 for headers)",
+                "     * Alternate row coloring for better readability (light gray #f2f2f2)",
+                "     * Number formatting for currency values (e.g., $1,234,567.89)",
+                "     * Percentage formatting where applicable",
+                "     * Date formatting for date fields",
+                "     * Conditional formatting to highlight negative values in red",
+                "     * Auto-fit column widths based on content",
+                "     * Freeze panes for headers",
+                "     * Add borders around data tables",
+                "   - Handle data intelligently:",
+                "     * Flatten nested structures (e.g., context_qualifiers arrays to comma-separated strings)",
+                "     * Group related metrics together",
+                "     * Sort data by year/period where applicable",
+                "     * Create pivot tables or summary tables for key metrics",
+                "     * Add data validation where appropriate",
+                "   - Include data analysis features:",
+                "     * Calculate year-over-year changes for metrics",
+                "     * Add sparklines or mini charts where beneficial",
+                "     * Create a summary dashboard with key KPIs",
+                "     * Add filters to large data tables",
                 "5. Execute the script and verify the Excel file was created successfully",
-                "6. Verify the Excel file contains data and report file size",
+                "6. Verify the Excel file contains all expected sheets and proper formatting",
+                "7. Report the file size and number of sheets created",
                 "Continue with ALL steps automatically without stopping after each tool execution",
             ],
-            expected_output="A professionally formatted Excel file containing all extracted financial data, organized into multiple sheets with proper headers and formatting, saved at the specified output path, with confirmation that the file contains the expected data.",
-            additional_context="The JSON contains financial data with nested structures. Each financial metric is an array of observations with fields like term_used, value, location, full_amount, etc. Company identification contains basic company info. IMPORTANT: The JSON data may be wrapped in markdown format like '```json\\n{...}\\n```' and needs to be cleaned before parsing. Handle both markdown-wrapped and pure JSON formats robustly.",
+            expected_output="A professionally formatted Excel file with multiple well-organized sheets, proper color coding, headers, number formatting, and data organization. The file should look like it was created by a professional data analyst, ready for executive presentation.",
+            additional_context="""The JSON contains financial data with these typical structures:
+- company_identification: Basic company info (name, industry, location, etc.)
+- financial_metrics: Array of metric objects with fields like:
+  * metric_category (Revenue/Sales, Profitability Metrics, Balance Sheet, etc.)
+  * metric_name, term_used_in_report, raw_value_string, extracted_value
+  * currency, context_qualifiers (array), reporting_year, page_number, section_name
+- extraction_notes: Metadata about the extraction process
+
+Create sheets that make sense for the data:
+1. Company Overview - nicely formatted company details
+2. Financial Summary - key metrics dashboard
+3. Revenue Metrics - all revenue-related data
+4. Profitability Metrics - all profit/loss data
+5. Balance Sheet Metrics - balance sheet items
+6. Cash Flow Metrics - cash flow data
+7. Employee Metrics - employee-related data
+8. Data Quality - extraction notes and unusual findings
+
+Use pandas with openpyxl/xlsxwriter for advanced formatting capabilities.""",
             stream=False,  # Don't stream for this focused task
             show_tool_calls=True,  # Show tool calls for debugging
             add_history_to_messages=True,  # Add chat history to messages
