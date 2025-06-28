@@ -699,9 +699,16 @@ async def agno_process(request: Request, background_tasks: BackgroundTasks):
 
         # Parse extracted data if it's a string
         if isinstance(extracted_data, str):
+            # Check if it's markdown-wrapped JSON
+            if extracted_data.strip().startswith('```json') and extracted_data.strip().endswith('```'):
+                # Remove markdown wrapper
+                print("[agno-process] Detected markdown-wrapped JSON, removing wrapper")
+                extracted_data = extracted_data.strip()[7:-3].strip()  # Remove ```json and ```
+            
             try:
                 extracted_data = json.loads(extracted_data)
-            except json.JSONDecodeError:
+            except json.JSONDecodeError as e:
+                print(f"[agno-process] Failed to parse JSON: {e}")
                 # If it fails to parse, keep as string
                 pass
 
@@ -713,6 +720,11 @@ async def agno_process(request: Request, background_tasks: BackgroundTasks):
         # Save extracted data as JSON file for processing
         json_file_path = os.path.join(session_dir, "extracted_data.json")
         try:
+            # Debug: Check data type before saving
+            print(f"[agno-process] Data type before saving: {type(extracted_data)}")
+            if isinstance(extracted_data, dict):
+                print(f"[agno-process] Data is a dict with keys: {list(extracted_data.keys())[:5]}")
+            
             with open(json_file_path, "w", encoding='utf-8') as f:
                 json.dump(extracted_data, f, indent=2, ensure_ascii=False, default=str)
         except (TypeError, ValueError) as e:
