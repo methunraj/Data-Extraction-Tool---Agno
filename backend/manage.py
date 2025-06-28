@@ -11,8 +11,8 @@ import time
 import argparse
 
 class SimpleServerManager:
-    def __init__(self, port=8000):
-        self.port = port
+    def __init__(self, port=None):
+        self.port = port or int(os.getenv("PORT", 8000))
         self.pid_file = f"/tmp/intelliextract_backend_{port}.pid"
         
     def find_process_on_port(self):

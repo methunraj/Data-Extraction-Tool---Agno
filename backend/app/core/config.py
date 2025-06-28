@@ -3,18 +3,29 @@ import os
 import logging
 from pathlib import Path
 from pydantic_settings import BaseSettings
-from pydantic import validator
+from pydantic import field_validator
 from dotenv import load_dotenv
 
 logger = logging.getLogger(__name__)
 
-# Explicitly load the .env file
-env_path = Path(__file__).resolve().parent.parent.parent.parent / ".env"
-if env_path.exists():
+# Explicitly load the .env file with robust path discovery
+def find_env_file():
+    """Find .env file by searching up the directory tree."""
+    current_path = Path(__file__).resolve()
+    for parent in [current_path.parent] + list(current_path.parents):
+        env_path = parent / ".env"
+        if env_path.exists():
+            return env_path
+    return None
+
+env_path = find_env_file()
+if env_path:
     load_dotenv(env_path)
     logger.info(f"Loaded environment variables from {env_path}")
 else:
-    logger.warning(f"Environment file not found at {env_path}")
+    # Fallback to load_dotenv() which searches automatically
+    load_dotenv()
+    logger.warning("No .env file found, using system environment variables")
 
 class Settings(BaseSettings):
     """
@@ -37,6 +48,12 @@ class Settings(BaseSettings):
     
     # Performance & Security Settings
     MAX_FILE_SIZE_MB: int = 100  # Maximum file size in MB
+    MAX_REQUEST_SIZE_MB: int = 200  # Maximum total request size in MB
+    MAX_UPLOAD_SIZE_MB: int = 150  # Maximum upload size in MB
+    
+    # CORS Configuration
+    CORS_ORIGINS: str = os.getenv("CORS_ORIGINS", "http://localhost:3000,http://localhost:9002")
+    ENVIRONMENT: str = os.getenv("ENVIRONMENT", "development")
     MAX_JSON_SIZE_MB: int = 50   # Maximum JSON payload size in MB
     REQUEST_TIMEOUT_SECONDS: int = 1200  # 20 minutes
     CLEANUP_DELAY_SECONDS: int = 300  # 5 minutes delay before cleanup
@@ -46,7 +63,8 @@ class Settings(BaseSettings):
     # Directory Configuration
     AGENT_TEMP_DIR: str = os.getenv("AGENT_TEMP_DIR", "")
     
-    @validator('GOOGLE_API_KEY')
+    @field_validator('GOOGLE_API_KEY')
+    @classmethod
     def validate_google_api_key(cls, v):
         if not v:
             logger.warning("GOOGLE_API_KEY is not set. AI processing will fail.")
@@ -54,9 +72,11 @@ class Settings(BaseSettings):
             logger.warning("GOOGLE_API_KEY appears to be invalid (too short).")
         return v
     
-    @validator('AGNO_API_KEY')
-    def validate_agno_api_key(cls, v, values):
-        if values.get('AGNO_MONITOR') and not v:
+    @field_validator('AGNO_API_KEY')
+    @classmethod
+    def validate_agno_api_key(cls, v, info):
+        # In Pydantic v2, we need to access other field values differently
+        if hasattr(info, 'data') and info.data.get('AGNO_MONITOR') and not v:
             logger.warning("AGNO_MONITOR is enabled but AGNO_API_KEY is not set. Monitoring may not work properly.")
         return v
 

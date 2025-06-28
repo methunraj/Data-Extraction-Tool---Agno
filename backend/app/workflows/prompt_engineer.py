@@ -201,9 +201,16 @@ class PromptEngineerWorkflow:
             # Try to create ExtractionSchema from dict
             try:
                 return ExtractionSchema(**response.content)
-            except Exception as e:
+            except (TypeError, ValueError, KeyError) as e:
                 print(f"[PromptEngineer] Failed to create ExtractionSchema from dict: {e}")
-                raise ValueError(f"Failed to parse response as ExtractionSchema: {e}")
+                import traceback
+                print(f"[PromptEngineer] Full traceback: {traceback.format_exc()}")
+                raise ValueError(f"Failed to parse response as ExtractionSchema: {e}") from e
+            except Exception as e:
+                print(f"[PromptEngineer] Unexpected error creating ExtractionSchema: {e}")
+                import traceback
+                print(f"[PromptEngineer] Full traceback: {traceback.format_exc()}")
+                raise RuntimeError(f"Unexpected error during schema creation: {e}") from e
         else:
             print(f"[PromptEngineer] Invalid response format")
             raise ValueError("No valid structured response generated")
@@ -243,5 +250,20 @@ class PromptEngineerWorkflow:
         # Extract the structured content from RunResponse
         if hasattr(response, 'content') and isinstance(response.content, ExtractionSchema):
             return response.content
+        elif hasattr(response, 'content') and isinstance(response.content, dict):
+            # Try to create ExtractionSchema from dict
+            try:
+                return ExtractionSchema(**response.content)
+            except (TypeError, ValueError, KeyError) as e:
+                print(f"[PromptEngineer] Failed to create ExtractionSchema from dict: {e}")
+                import traceback
+                print(f"[PromptEngineer] Full traceback: {traceback.format_exc()}")
+                raise ValueError(f"Failed to parse response as ExtractionSchema: {e}") from e
+            except Exception as e:
+                print(f"[PromptEngineer] Unexpected error creating ExtractionSchema: {e}")
+                import traceback
+                print(f"[PromptEngineer] Full traceback: {traceback.format_exc()}")
+                raise RuntimeError(f"Unexpected error during schema creation: {e}") from e
         else:
+            print(f"[PromptEngineer] Invalid response format")
             raise ValueError("No valid structured response generated")

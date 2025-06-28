@@ -24,7 +24,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Connect to Agno backend
-    const backendUrl = process.env.AGNO_BACKEND_URL || 'http://localhost:8000';
+    const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000';
     
     console.log(`Generating config via Agno backend at: ${backendUrl}`);
     
@@ -80,6 +80,6 @@ export async function GET() {
   return NextResponse.json({
     message: 'IntelliExtract Configuration Generator',
     usage: 'POST with { requirements, sampleDocuments?, apiKey? }',
-    backend: process.env.AGNO_BACKEND_URL || 'http://localhost:8000'
+    backend: process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000'
   });
 }

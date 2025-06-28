@@ -281,16 +281,7 @@ export function JobProvider({ children }: { children: React.ReactNode }) {
         
         const extractionOutput = await backendAIService.extractData(extractionInput, abortController.signal);
         
-        console.log(`\n=== EXTRACTION OUTPUT DEBUG ===`);
-        console.log(`File: ${fileJob.name}`);
-        console.log(`extractionOutput exists: ${!!extractionOutput}`);
-        console.log(`extractedJson exists: ${!!extractionOutput?.extractedJson}`);
-        console.log(`extractedJson type: ${typeof extractionOutput?.extractedJson}`);
-        console.log(`extractedJson length: ${extractionOutput?.extractedJson?.length || 0}`);
-        if (extractionOutput?.extractedJson) {
-          console.log(`First 100 chars: ${extractionOutput.extractedJson.substring(0, 100)}...`);
-        }
-        console.log(`==============================\n`);
+        // Debug logging removed for production
         
         extractedDataJson = extractionOutput.extractedJson;
         tokens = {
@@ -342,7 +333,7 @@ export function JobProvider({ children }: { children: React.ReactNode }) {
               extractedData: extractedDataJson,
               fileName: fileJob.name.replace(/\.[^/.]+$/, '.xlsx'),
               llmProvider: llmProvider || 'googleAI',
-              model: agnoModel || 'gemini-2.0-flash-exp',
+              model: agnoModel || 'gemini-2.0-flash',
               apiKey: llmApiKey,
               temperature: llmTemperature
             });

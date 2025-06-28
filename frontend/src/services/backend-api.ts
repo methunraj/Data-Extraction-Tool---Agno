@@ -131,6 +131,21 @@ class BackendAIService {
     };
   }
 
+  private async parseErrorResponse(response: Response, defaultMessage: string): Promise<string> {
+    try {
+      const error = await response.json();
+      return error.error || error.detail || error.message || defaultMessage;
+    } catch (parseError) {
+      // If JSON parsing fails, try to get text response
+      try {
+        const errorText = await response.text();
+        return errorText || `HTTP ${response.status}: ${response.statusText}`;
+      } catch (textError) {
+        return `HTTP ${response.status}: ${response.statusText}`;
+      }
+    }
+  }
+
   private async fetchWithError<T>(
     endpoint: string,
     options: RequestInit = {}
@@ -460,8 +475,8 @@ class BackendAIService {
     });
 
     if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.error || 'Config generation failed');
+      const errorMessage = await this.parseErrorResponse(response, 'Config generation failed');
+      throw new Error(errorMessage);
     }
 
     return response.json();
@@ -493,8 +508,8 @@ class BackendAIService {
     });
 
     if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.error || 'File processing failed');
+      const errorMessage = await this.parseErrorResponse(response, 'File processing failed');
+      throw new Error(errorMessage);
     }
 
     // Handle streaming response
@@ -585,6 +600,28 @@ class BackendAIService {
     }
     
     return response.data;
+  }
+
+  /** Cancel a running operation */
+  async cancelOperation(operationId: string): Promise<boolean> {
+    const response = await this.fetchWithError<any>(`/api/cancel-operation/${operationId}`, {
+      method: 'DELETE',
+    });
+    
+    return response.status === 200;
+  }
+
+  async generateSchema(intent: string): Promise<{ schema: string; success: boolean; warning?: string }> {
+    const response = await this.fetchWithError<{ schema: string; success: boolean; warning?: string }>('/api/generate-schema', {
+      method: 'POST',
+      body: JSON.stringify({ intent }),
+    });
+
+    if (response.error) {
+      throw new Error(response.error);
+    }
+
+    return response.data!;
   }
 }
 

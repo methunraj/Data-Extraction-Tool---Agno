@@ -4,11 +4,15 @@ Direct workflow usage with no custom abstractions - let Agno handle complexity.
 """
 
 import os
+import sys
 import uuid
 import asyncio
 import json
+import threading
+import datetime
 from pathlib import Path
 from typing import List, Dict, Any, Optional
+import aiofiles
 
 # Load environment variables
 from dotenv import load_dotenv
@@ -29,8 +33,18 @@ from .workflows.prompt_engineer import PromptEngineerWorkflow, ExtractionSchema
 # Import model factory functions
 from .agents.models import get_extraction_model, get_transform_model
 
-# Import routers - commented out due to legacy code conflicts
-# from .routers import models, generation, extraction, cache, agents, monitoring
+# Import settings and logging
+from .core.config import settings
+from .core.logging import setup_logging, get_logger, log_api_request, log_api_response, log_error, error_monitor
+from .monitoring import metrics_collector, get_health_status
+import uuid as uuid_module
+import time
+
+# Setup structured logging
+setup_logging()
+logger = get_logger("main")
+
+
 
 
 # Pydantic models for API requests
@@ -51,33 +65,125 @@ class ExtractionRequest(BaseModel):
     examples: Optional[List[Dict[str, str]]] = None
 
 
-# Initialize FastAPI app
+# Initialize FastAPI app with size limits
 app = FastAPI(
     title="IntelliExtract API",
     description="AI-powered data extraction using Agno workflows",
     version="2.0.0",
 )
 
-# Add CORS middleware
+# Add CORS middleware with environment-based configuration
+cors_origins = settings.CORS_ORIGINS.split(",") if settings.CORS_ORIGINS else ["*"]
+if settings.ENVIRONMENT == "production" and "*" in cors_origins:
+    logger.warning("CORS configured to allow all origins in production. Consider restricting origins.")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Configure as needed for production
+    allow_origins=cors_origins,
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
 
-# Include routers - commented out due to legacy code conflicts
-# app.include_router(models.router)
-# app.include_router(generation.router)
-# app.include_router(extraction.router)
-# app.include_router(cache.router)
-# app.include_router(agents.router)
-# app.include_router(monitoring.router)
+# Add request logging and size limit middleware
+@app.middleware("http")
+async def logging_and_size_middleware(request: Request, call_next):
+    """Middleware for request logging and size limits"""
+    request_id = str(uuid_module.uuid4())
+    start_time = time.time()
+    
+    # Log incoming request and record metrics
+    log_api_request(
+        request_id=request_id,
+        method=request.method,
+        path=request.url.path,
+        query_params=str(request.query_params),
+        user_agent=request.headers.get("user-agent", ""),
+        client_ip=request.client.host if request.client else "unknown"
+    )
+    metrics_collector.record_request(request.method, request.url.path)
+    
+    # Check request size limits
+    if request.method in ["POST", "PUT", "PATCH"]:
+        content_length = request.headers.get("content-length")
+        if content_length:
+            content_length = int(content_length)
+            max_size = settings.MAX_REQUEST_SIZE_MB * 1024 * 1024  # Convert MB to bytes
+            if content_length > max_size:
+                error_msg = f"Request too large. Maximum size is {settings.MAX_REQUEST_SIZE_MB}MB"
+                log_error(
+                    ValueError(error_msg),
+                    context={
+                        "request_id": request_id,
+                        "content_length": content_length,
+                        "max_size": max_size
+                    }
+                )
+                return HTTPException(status_code=413, detail=error_msg)
+    
+    try:
+        # Process request
+        response = await call_next(request)
+        
+        # Log response and record metrics
+        duration_ms = (time.time() - start_time) * 1000
+        log_api_response(
+            request_id=request_id,
+            status_code=response.status_code,
+            duration_ms=duration_ms
+        )
+        metrics_collector.record_response_time(duration_ms)
+        
+        return response
+        
+    except Exception as e:
+        # Log error and record metrics
+        duration_ms = (time.time() - start_time) * 1000
+        log_error(e, context={
+            "request_id": request_id,
+            "method": request.method,
+            "path": request.url.path,
+            "duration_ms": duration_ms
+        })
+        metrics_collector.record_error(type(e).__name__)
+        
+        # Re-raise the exception
+        raise
+
+
 
 # Global settings
 TEMP_DIR = os.environ.get("AGENT_TEMP_DIR", "/tmp/intelliextract")
 Path(TEMP_DIR).mkdir(parents=True, exist_ok=True)
+
+# Cancellation token storage
+ACTIVE_OPERATIONS: Dict[str, threading.Event] = {}
+
+class CancellationToken:
+    """Simple cancellation token for long-running operations"""
+    def __init__(self, operation_id: str):
+        self.operation_id = operation_id
+        self.cancelled = threading.Event()
+        ACTIVE_OPERATIONS[operation_id] = self.cancelled
+    
+    def is_cancelled(self) -> bool:
+        return self.cancelled.is_set()
+    
+    def cancel(self):
+        self.cancelled.set()
+    
+    def cleanup(self):
+        if self.operation_id in ACTIVE_OPERATIONS:
+            del ACTIVE_OPERATIONS[self.operation_id]
+
+@app.delete("/api/cancel-operation/{operation_id}")
+async def cancel_operation(operation_id: str):
+    """Cancel a running operation"""
+    if operation_id in ACTIVE_OPERATIONS:
+        ACTIVE_OPERATIONS[operation_id].set()
+        return {"message": f"Cancellation requested for operation {operation_id}"}
+    else:
+        raise HTTPException(status_code=404, detail="Operation not found or already completed")
 
 
 @app.post("/api/generate-config", response_model=Dict[str, Any])
@@ -109,7 +215,7 @@ async def generate_config(request: ConfigRequest):
 
 
 @app.post("/api/generate-unified-config", response_model=Dict[str, Any])
-async def generate_unified_config(request: Dict[str, Any]):
+async def generate_unified_config(request: Dict[str, Any], background_tasks: BackgroundTasks):
     """
     Generate unified extraction configuration (frontend-compatible endpoint).
     Maps frontend parameters to PromptEngineerWorkflow.
@@ -119,27 +225,76 @@ async def generate_unified_config(request: Dict[str, Any]):
         model_name = request.get("model_name")
         print(f"[generate-unified-config] Received model_name: {model_name}")
 
-        # Initialize workflow with the selected model
-        prompt_engineer = PromptEngineerWorkflow(model_id=model_name)
+        # Create cancellation token for this operation
+        operation_id = str(uuid.uuid4())
+        cancellation_token = CancellationToken(operation_id)
+        
+        try:
+            # Initialize workflow with the selected model
+            prompt_engineer = PromptEngineerWorkflow(model_id=model_name)
 
-        # Map frontend parameters to backend format
-        requirements = request.get("user_intent", "")
-        sample_documents = (
-            request.get("sample_data", "").split("\n")
-            if request.get("sample_data")
-            else None
-        )
+            # Map frontend parameters to backend format
+            requirements = request.get("user_intent", "")
+            
+            # Validate and process sample_data
+            sample_data_raw = request.get("sample_data", "")
+            sample_documents = None
+            
+            if sample_data_raw:
+                # Validate sample_data size (max 10MB)
+                if len(sample_data_raw) > 10 * 1024 * 1024:
+                    raise HTTPException(
+                        status_code=400, 
+                        detail="sample_data too large. Maximum size is 10MB"
+                    )
+                
+                # Split and validate documents
+                sample_docs = sample_data_raw.split("\n")
+                
+                # Filter out empty lines and validate document count
+                valid_docs = [doc.strip() for doc in sample_docs if doc.strip()]
+                
+                if len(valid_docs) > 100:
+                    raise HTTPException(
+                        status_code=400, 
+                        detail="Too many sample documents. Maximum is 100 documents"
+                    )
+                
+                # Validate individual document size
+                for i, doc in enumerate(valid_docs):
+                    if len(doc) > 100000:  # 100KB per document
+                        raise HTTPException(
+                            status_code=400, 
+                            detail=f"Sample document {i+1} too large. Maximum size per document is 100KB"
+                        )
+                
+                sample_documents = valid_docs if valid_docs else None
 
-        if not requirements:
-            raise HTTPException(status_code=400, detail="user_intent is required")
+            if not requirements:
+                raise HTTPException(status_code=400, detail="user_intent is required")
 
-        # Generate configuration
-        if sample_documents and any(doc.strip() for doc in sample_documents):
-            config: ExtractionSchema = prompt_engineer.run_with_examples(
-                requirements, [doc.strip() for doc in sample_documents if doc.strip()]
-            )
-        else:
-            config: ExtractionSchema = prompt_engineer.run(requirements)
+            # Generate configuration
+            if sample_documents and any(doc.strip() for doc in sample_documents):
+                config: ExtractionSchema = prompt_engineer.run_with_examples(
+                    requirements, [doc.strip() for doc in sample_documents if doc.strip()]
+                )
+            else:
+                config: ExtractionSchema = prompt_engineer.run(requirements)
+            
+            # Check for cancellation after generation
+            if cancellation_token.is_cancelled():
+                raise HTTPException(status_code=499, detail="Operation was cancelled")
+                
+        except Exception as e:
+            log_error(e, context={
+                "endpoint": "generate-unified-config",
+                "user_intent": requirements[:100] if requirements else None,
+                "has_sample_data": bool(sample_documents)
+            })
+            raise HTTPException(status_code=500, detail=f"Configuration generation failed: {str(e)}")
+        finally:
+            # Always cleanup the cancellation token
+            cancellation_token.cleanup()
 
         # Convert to frontend format
         result = config.model_dump()
@@ -158,6 +313,7 @@ async def generate_unified_config(request: Dict[str, Any]):
             "reasoning": "Configuration generated successfully using Agno PromptEngineerWorkflow",
             "cost": 0.001,  # Placeholder cost
             "tokens_used": 1000,  # Placeholder token count
+            "operation_id": operation_id,
         }
 
     except Exception as e:
@@ -188,7 +344,7 @@ async def refine_config(current_config: Dict[str, Any], feedback: str):
 
 
 @app.post("/api/extract-data")
-async def extract_data_json(request: Dict[str, Any]):
+async def extract_data_json(request: Dict[str, Any], background_tasks: BackgroundTasks):
     """
     Extract data endpoint that accepts JSON input (frontend-compatible).
     Uses Agno to process documents directly.
@@ -220,27 +376,50 @@ async def extract_data_json(request: Dict[str, Any]):
         # Handle document content
         content = document_text
         files = []
+        tmp_file_path = None
 
         if not content and document_file:
             # Handle PDF/image files with Agno's multimodal capabilities
             import base64
+            import tempfile
             from agno.media import File
 
             mime_type = document_file.get("mime_type", "application/pdf")
             file_data = document_file.get("data", "")
 
-            # Create a temporary file for the PDF
-            import tempfile
+            try:
+                # Validate file size before processing to prevent memory exhaustion
+                estimated_size = len(file_data) * 3 // 4  # Rough base64 to binary size estimate
+                max_file_size = 100 * 1024 * 1024  # 100MB limit
+                
+                if estimated_size > max_file_size:
+                    raise HTTPException(
+                        status_code=413, 
+                        detail=f"File too large. Maximum size is {max_file_size // (1024*1024)}MB"
+                    )
+                
+                # Create a temporary file for the PDF
+                with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp_file:
+                    # Decode entire base64 data and write to file
+                    file_bytes = base64.b64decode(file_data)
+                    tmp_file.write(file_bytes)
+                    tmp_file_path = tmp_file.name
 
-            with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp_file:
-                # Decode base64 data and write to file
-                file_bytes = base64.b64decode(file_data)
-                tmp_file.write(file_bytes)
-                tmp_file_path = tmp_file.name
-
-            # Create Agno File object
-            files = [File(filepath=tmp_file_path)]
-            content = "Please extract data from the attached PDF document."
+                # Create Agno File object
+                files = [File(filepath=tmp_file_path)]
+                content = "Please extract data from the attached PDF document."
+                
+            except Exception as e:
+                # Clean up temp file if creation failed
+                if tmp_file_path and os.path.exists(tmp_file_path):
+                    try:
+                        os.unlink(tmp_file_path)
+                    except:
+                        pass
+                raise HTTPException(
+                    status_code=500, 
+                    detail=f"Failed to process document file: {str(e)}"
+                )
 
         # Create extraction agent with the selected model
         agent = Agent(
@@ -275,34 +454,46 @@ async def extract_data_json(request: Dict[str, Any]):
                     f"\nInput: {ex.get('input', '')}\nOutput: {ex.get('output', '')}\n"
                 )
 
-        # Run extraction with files if available
-        if files:
-            response = agent.run(prompt, files=files)
-        else:
-            response = agent.run(prompt)
+        # Create cancellation token for this operation
+        operation_id = str(uuid.uuid4())
+        cancellation_token = CancellationToken(operation_id)
+        
+        try:
+            # Run extraction with cancellation support
+            if files:
+                response = agent.run(prompt, files=files)
+            else:
+                response = agent.run(prompt)
+            
+            # Check for cancellation after agent run
+            if cancellation_token.is_cancelled():
+                raise HTTPException(status_code=499, detail="Operation was cancelled")
 
-        # Extract the content
-        extracted_json = ""
-        if hasattr(response, "content"):
-            extracted_json = response.content
-            # Try to parse as JSON if it's a string
-            if isinstance(extracted_json, str):
+            # Extract the content
+            extracted_json = ""
+            if hasattr(response, "content"):
+                extracted_json = response.content
+                # Try to parse as JSON if it's a string
+                if isinstance(extracted_json, str):
+                    try:
+                        import json
+
+                        extracted_json = json.loads(extracted_json)
+                    except:
+                        # If it fails, keep as string
+                        pass
+                        
+        finally:
+            # Always cleanup the cancellation token
+            cancellation_token.cleanup()
+            
+            # Always clean up temporary file if created
+            if tmp_file_path and os.path.exists(tmp_file_path):
                 try:
-                    import json
-
-                    extracted_json = json.loads(extracted_json)
-                except:
-                    # If it fails, keep as string
-                    pass
-
-        # Clean up temporary file if created
-        if files and "tmp_file_path" in locals():
-            import os
-
-            try:
-                os.unlink(tmp_file_path)
-            except:
-                pass
+                    os.unlink(tmp_file_path)
+                    print(f"[extract-data] Cleaned up temporary file: {tmp_file_path}")
+                except Exception as cleanup_error:
+                    print(f"[extract-data] Failed to cleanup temp file {tmp_file_path}: {cleanup_error}")
 
         # Return response in expected format
         return {
@@ -353,12 +544,20 @@ async def extract_data(
     saved_files = []
     try:
         for file in files:
+            # Validate file size
+            content = await file.read()
+            file_size_mb = len(content) / (1024 * 1024)
+            if file_size_mb > settings.MAX_FILE_SIZE_MB:
+                raise HTTPException(
+                    status_code=413,
+                    detail=f"File '{file.filename}' is too large ({file_size_mb:.1f}MB). Maximum size is {settings.MAX_FILE_SIZE_MB}MB"
+                )
+            
             file_path = os.path.join(
                 session_dir, file.filename or f"file_{uuid.uuid4().hex[:8]}"
             )
-            with open(file_path, "wb") as f:
-                content = await file.read()
-                f.write(content)
+            async with aiofiles.open(file_path, "wb") as f:
+                await f.write(content)
             saved_files.append(
                 {
                     "name": file.filename,
@@ -422,7 +621,21 @@ async def download_report(session_id: str, filename: Optional[str] = None):
     """
     Download generated Excel report from session directory.
     """
+    import re
+    
+    # Validate session_id to prevent directory traversal
+    if not re.match(r'^[a-zA-Z0-9_-]+$', session_id):
+        raise HTTPException(
+            status_code=400, detail="Invalid session ID format"
+        )
+    
     session_dir = os.path.join(TEMP_DIR, f"session_{session_id}")
+    
+    # Ensure session directory exists and is within TEMP_DIR
+    if not os.path.exists(session_dir) or not os.path.commonpath([TEMP_DIR, session_dir]) == TEMP_DIR:
+        raise HTTPException(
+            status_code=404, detail="Session not found"
+        )
 
     # Look for Excel files in session directory
     excel_files = list(Path(session_dir).glob("*.xlsx"))
@@ -434,16 +647,37 @@ async def download_report(session_id: str, filename: Optional[str] = None):
 
     # Use specified filename or first found Excel file
     if filename:
-        report_path = os.path.join(session_dir, filename)
+        # Sanitize filename to prevent path traversal
+        safe_filename = os.path.basename(filename)
+        if not safe_filename or safe_filename != filename or '..' in filename:
+            raise HTTPException(
+                status_code=400, detail="Invalid filename"
+            )
+        
+        # Ensure filename has valid extension
+        if not safe_filename.endswith('.xlsx'):
+            raise HTTPException(
+                status_code=400, detail="Only .xlsx files are allowed"
+            )
+        
+        report_path = os.path.join(session_dir, safe_filename)
+        
+        # Double-check the resolved path is still within session directory
+        if not os.path.commonpath([session_dir, report_path]) == session_dir:
+            raise HTTPException(
+                status_code=400, detail="Invalid file path"
+            )
+        
         if not os.path.exists(report_path):
-            raise HTTPException(status_code=404, detail=f"File {filename} not found")
+            raise HTTPException(status_code=404, detail=f"File {safe_filename} not found")
     else:
         report_path = str(excel_files[0])
+        safe_filename = os.path.basename(report_path)
 
     # Return file response
     return FileResponse(
         path=report_path,
-        filename=filename or "extracted_data.xlsx",
+        filename=safe_filename or "extracted_data.xlsx",
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
 
@@ -458,7 +692,7 @@ async def agno_process(request: Request, background_tasks: BackgroundTasks):
         body = await request.json()
         extracted_data = body.get("extractedData")
         file_name = body.get("fileName", "output.xlsx")
-        model_name = body.get("model", "gemini-2.0-flash-exp")
+        model_name = body.get("model", "gemini-2.0-flash")
 
         if not extracted_data:
             raise HTTPException(status_code=400, detail="Missing extractedData")
@@ -478,15 +712,52 @@ async def agno_process(request: Request, background_tasks: BackgroundTasks):
 
         # Save extracted data as JSON file for processing
         json_file_path = os.path.join(session_dir, "extracted_data.json")
-        with open(json_file_path, "w") as f:
-            json.dump(extracted_data, f, indent=2)
+        try:
+            with open(json_file_path, "w", encoding='utf-8') as f:
+                json.dump(extracted_data, f, indent=2, ensure_ascii=False, default=str)
+        except (TypeError, ValueError) as e:
+            # Handle non-serializable objects by converting to string representation
+            print(f"[agno-process] JSON serialization failed, using fallback: {e}")
+            try:
+                # Attempt to serialize with custom handler
+                import pickle
+                import base64
+                
+                def json_serializer(obj):
+                    """Custom JSON serializer for complex objects"""
+                    if hasattr(obj, '__dict__'):
+                        return obj.__dict__
+                    elif hasattr(obj, 'model_dump'):  # Pydantic models
+                        return obj.model_dump()
+                    elif hasattr(obj, 'dict'):  # Pydantic v1 models
+                        return obj.dict()
+                    else:
+                        return str(obj)
+                
+                with open(json_file_path, "w", encoding='utf-8') as f:
+                    json.dump(extracted_data, f, indent=2, ensure_ascii=False, default=json_serializer)
+            except Exception as fallback_error:
+                print(f"[agno-process] Fallback serialization failed: {fallback_error}")
+                # Last resort: save as string representation
+                with open(json_file_path, "w", encoding='utf-8') as f:
+                    json.dump({"data": str(extracted_data), "error": "Original data was not JSON serializable"}, f, indent=2)
+        except Exception as e:
+            print(f"[agno-process] File write error: {e}")
+            raise HTTPException(
+                status_code=500, 
+                detail=f"Failed to save extracted data: {str(e)}"
+            )
 
+        # Create cancellation token for this operation
+        operation_id = str(uuid.uuid4())
+        cancellation_token = CancellationToken(operation_id)
+        
         # Initialize Excel generation workflow
         from .agents.excel_generator import ExcelGeneratorAgent
         excel_agent = ExcelGeneratorAgent(
             model=get_transform_model(model_id=model_name), working_dir=session_dir
         )
-        print("[agno-process] Using ExcelGeneratorAgent")
+        print(f"[agno-process] Using ExcelGeneratorAgent with operation_id: {operation_id}")
 
         # Generate Excel file with clear, step-by-step prompt
         excel_prompt = f"""Convert the JSON data at {json_file_path} to an Excel file at {os.path.join(session_dir, file_name)}.
@@ -523,6 +794,12 @@ Remember: The JSON contains financial data with nested structures. Create approp
         print(f"[agno-process] Starting Excel generation for session {session_id}")
         
         try:
+            import time
+            
+            # Add timeout mechanism
+            start_time = time.time()
+            max_execution_time = 600  # 10 minutes timeout
+            
             # Initial run
             result = excel_agent.run(excel_prompt)
             print(f"[agno-process] Initial run completed. Type: {type(result)}")
@@ -532,6 +809,20 @@ Remember: The JSON contains financial data with nested structures. Create approp
             continuation_count = 0
             
             while continuation_count < max_continuations:
+                # Check for timeout first
+                elapsed_time = time.time() - start_time
+                if elapsed_time > max_execution_time:
+                    print(f"[agno-process] Operation timed out after {elapsed_time:.1f} seconds")
+                    raise HTTPException(
+                        status_code=408, 
+                        detail=f"Excel generation timed out after {max_execution_time} seconds"
+                    )
+                
+                # Check for cancellation
+                if cancellation_token.is_cancelled():
+                    print("[agno-process] Operation cancelled by user")
+                    raise HTTPException(status_code=499, detail="Operation was cancelled")
+                
                 # Check if agent is paused (preferred method)
                 if hasattr(excel_agent, 'is_paused') and excel_agent.is_paused:
                     print("[agno-process] Agent is paused, continuing...")
@@ -562,6 +853,14 @@ Remember: The JSON contains financial data with nested structures. Create approp
                 if continuation_count == 0:
                     print("[agno-process] No file created yet, attempting continuation...")
                     try:
+                        # Check timeout and cancellation before continuing
+                        elapsed_time = time.time() - start_time
+                        if elapsed_time > max_execution_time:
+                            print(f"[agno-process] Timeout reached during continuation check")
+                            break
+                        if cancellation_token.is_cancelled():
+                            print("[agno-process] Operation cancelled during continuation")
+                            break
                         result = excel_agent.continue_run()
                         continuation_count += 1
                     except Exception as e:
@@ -679,6 +978,9 @@ Execute this script now."""
         background_tasks.add_task(
             cleanup_session, session_dir, delay_seconds=3600
         )  # 1 hour
+        
+        # Cleanup cancellation token
+        cancellation_token.cleanup()
 
         # Return download URL
         return {
@@ -686,9 +988,13 @@ Execute this script now."""
             "download_url": f"/api/download-report/{session_id}?filename={file_name}",
             "file_name": file_name,
             "session_id": session_id,
+            "operation_id": operation_id,
         }
 
     except Exception as e:
+        # Cleanup cancellation token on error
+        if 'cancellation_token' in locals():
+            cancellation_token.cleanup()
         raise HTTPException(status_code=500, detail=f"Agno processing failed: {str(e)}")
 
 
@@ -860,14 +1166,41 @@ async def get_models():
 @app.get("/health")
 async def health():
     """
-    Health check endpoint.
+    Health check endpoint with comprehensive monitoring.
     """
-    return {
-        "status": "healthy",
+    health_status = get_health_status()
+    
+    # Add basic service info
+    health_status.update({
         "framework": "agno",
         "api_version": "2.0.0",
         "temp_dir": TEMP_DIR,
         "temp_dir_exists": os.path.exists(TEMP_DIR),
+        "environment": settings.ENVIRONMENT,
+        "python_version": sys.version.split()[0],
+        "platform": sys.platform
+    })
+    
+    return health_status
+
+
+@app.get("/api/monitoring/metrics")
+async def get_monitoring_metrics():
+    """
+    Get detailed monitoring metrics.
+    """
+    return metrics_collector.get_metrics()
+
+
+@app.get("/api/monitoring/errors")
+async def get_error_monitoring():
+    """
+    Get error monitoring statistics.
+    """
+    return {
+        "error_stats": error_monitor.get_error_stats(),
+        "total_errors": sum(error_monitor.get_error_stats().values()),
+        "timestamp": datetime.datetime.utcnow().isoformat() + "Z"
     }
 
 
@@ -907,6 +1240,53 @@ def cleanup_session_sync(session_dir: str):
     except Exception as e:
         print(f"Failed to cleanup session directory {session_dir}: {e}")
 
+@app.post("/api/generate-schema")
+async def generate_schema(request: Dict[str, Any]):
+    """
+    Generate a JSON schema based on user intent.
+    """
+    try:
+        intent = request.get("intent", "")
+        if not intent:
+            raise HTTPException(status_code=400, detail="Intent is required")
+        
+        # Initialize prompt engineer workflow
+        prompt_engineer = PromptEngineerWorkflow(
+            model=get_extraction_model(model_id=settings.DEFAULT_AI_MODEL)
+        )
+        
+        # Generate schema using the prompt engineer
+        schema_prompt = f"""Generate a JSON schema for data extraction based on this intent: {intent}
+
+Please create a comprehensive JSON schema that includes:
+1. Appropriate field names and types
+2. Required vs optional fields
+3. Field descriptions
+4. Validation constraints where applicable
+
+Return only the JSON schema without any markdown formatting."""
+        
+        result = prompt_engineer.run(schema_prompt)
+        
+        # Extract schema from result
+        if hasattr(result, 'content'):
+            schema_content = result.content
+        else:
+            schema_content = str(result)
+        
+        # Try to parse as JSON to validate
+        try:
+            import json
+            parsed_schema = json.loads(schema_content)
+            return {"schema": schema_content, "success": True}
+        except json.JSONDecodeError:
+            # If not valid JSON, return as-is but mark as potentially invalid
+            return {"schema": schema_content, "success": True, "warning": "Generated schema may need manual validation"}
+            
+    except Exception as e:
+        logger.error(f"Schema generation failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Schema generation failed: {str(e)}")
+
 
 # App startup event
 @app.on_event("startup")
@@ -930,6 +1310,7 @@ async def shutdown_event():
 if __name__ == "__main__":
     import uvicorn
 
+    port = int(os.getenv("PORT", 8000))
     uvicorn.run(
-        "app.main:app", host="0.0.0.0", port=8000, reload=True, log_level="info"
+        "app.main:app", host="0.0.0.0", port=port, reload=True, log_level="info"
     )
