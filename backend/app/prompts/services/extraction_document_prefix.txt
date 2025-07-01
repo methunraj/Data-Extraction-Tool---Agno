@@ -1,0 +1,2 @@
+Document to extract from:
+{{document_text}}

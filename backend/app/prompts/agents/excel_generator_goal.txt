@@ -1,0 +1,1 @@
+Convert the provided JSON financial data into a professionally formatted Excel file with multiple sheets, proper headers, color coding, and intelligent data organization.

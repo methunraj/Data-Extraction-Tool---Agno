@@ -1,0 +1,1 @@
+Analyze the provided JSON data thoroughly and create a comprehensive specification for how to structure it into a professional Excel workbook.

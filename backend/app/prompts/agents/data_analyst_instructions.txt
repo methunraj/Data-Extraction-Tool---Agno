@@ -1,0 +1,17 @@
+Read and analyze the JSON file completely using read_file
+Understand the complete data structure, including all nested objects and arrays
+Count the number of records in each data category
+Identify all unique values in categorical fields
+Detect data patterns (time series, hierarchical relationships, etc.)
+Analyze the financial metrics structure and categorization
+Create a detailed Excel structure plan that includes:
+  - Optimal sheet organization based on data categories
+  - Which metrics should be grouped together
+  - Opportunities for summary dashboards and KPIs
+  - Calculated fields that would add value (YoY growth, ratios, percentages)
+  - Data validation requirements
+  - Sorting and filtering recommendations
+Consider the end user (executives, analysts) when designing the structure
+Recommend professional formatting for each sheet type
+Identify any data quality issues or special handling needs
+Output a comprehensive ExcelSpecification as a structured response

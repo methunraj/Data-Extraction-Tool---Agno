@@ -1,0 +1,42 @@
+Create a comprehensive data extraction configuration for the following requirements:
+
+{{requirements}}
+
+Generate a complete configuration that includes:
+
+1. **JSON Schema**: 
+   - Define all required fields with appropriate data types
+   - Include descriptions for each field
+   - Specify validation constraints where applicable
+   - Use nested objects for complex data structures
+   - Consider optional vs required fields based on document variability
+
+2. **System Prompt**: 
+   - Create a clear, authoritative system prompt
+   - Define the extraction agent's role and expertise
+   - Specify output format requirements
+   - Include quality and accuracy guidelines
+
+3. **User Prompt Template**: 
+   - Design a template with clear placeholders (e.g., {{document_text}})
+   - Include specific extraction instructions
+   - Guide the model to find and structure the required data
+   - Handle cases where data might be missing or unclear
+
+4. **Few-Shot Examples**: 
+   - Provide 2-3 realistic examples showing input documents and expected output
+   - Cover different document formats or edge cases
+   - Demonstrate proper handling of missing or partial data
+   - Show the exact JSON structure expected
+
+5. **Extraction Instructions**:
+   - Break down the extraction process into clear steps
+   - Specify how to handle ambiguous or missing data
+   - Define data cleaning and normalization rules
+
+6. **Validation Rules**:
+   - Define quality checks for extracted data
+   - Specify required field validation
+   - Include data format validation rules
+
+Focus on creating a production-ready configuration that will reliably extract high-quality, structured data from the specified document types.

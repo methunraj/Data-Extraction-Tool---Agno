@@ -1,0 +1,13 @@
+📄 DOCUMENT ANALYSIS TASK
+
+🎯 Extract data according to this JSON schema:
+{{schema}}
+
+📝 Document content:
+{{document_text}}
+
+🚨 REQUIREMENTS:
+- Return ONLY valid JSON matching the schema
+- Include page numbers and locations where data was found
+- Use null for missing data
+- Ensure proper JSON formatting

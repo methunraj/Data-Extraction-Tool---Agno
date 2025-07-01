@@ -1,0 +1,19 @@
+The JSON contains financial data with these typical structures:
+- company_identification: Basic company info (name, industry, location, etc.)
+- financial_metrics: Array of metric objects with fields like:
+  * metric_category (Revenue/Sales, Profitability Metrics, Balance Sheet, etc.)
+  * metric_name, term_used_in_report, raw_value_string, extracted_value
+  * currency, context_qualifiers (array), reporting_year, page_number, section_name
+- extraction_notes: Metadata about the extraction process
+
+Create sheets that make sense for the data:
+1. Company Overview - nicely formatted company details
+2. Financial Summary - key metrics dashboard
+3. Revenue Metrics - all revenue-related data
+4. Profitability Metrics - all profit/loss data
+5. Balance Sheet Metrics - balance sheet items
+6. Cash Flow Metrics - cash flow data
+7. Employee Metrics - employee-related data
+8. Data Quality - extraction notes and unusual findings
+
+Use pandas with openpyxl/xlsxwriter for advanced formatting capabilities.

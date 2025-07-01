@@ -11,6 +11,7 @@ from agno.agent import Agent
 from ..agents.models import get_reasoning_model, get_structured_model
 from ..agents.tools import get_reasoning_tools
 from ..agents.memory import get_memory, get_storage
+from ..prompts import load_prompt
 
 
 class Example(BaseModel):
@@ -65,16 +66,7 @@ class PromptEngineerWorkflow:
         self.engineer = Agent(
             name="PromptEngineer",
             model=get_structured_model(model_id=model_id),  # Use provided model or default
-            instructions=[
-                "You are an expert prompt engineer specializing in data extraction configurations",
-                "Generate complete, production-ready extraction configurations",
-                "Create JSON schemas that capture all required fields with proper types",
-                "Write clear, specific prompts that guide accurate data extraction",
-                "Include relevant few-shot examples that demonstrate the desired output",
-                "Focus on clarity, completeness, and extraction accuracy",
-                "Consider edge cases and data validation requirements",
-                "Think step-by-step through the requirements before generating the configuration"
-            ],
+            instructions=load_prompt("workflows/prompt_engineer_instructions.txt").split('\n'),
             response_model=ExtractionSchema,  # Structured output - no parsing needed!
             use_json_mode=True,  # Use JSON mode for complex nested structures
             markdown=False,  # Disable markdown for cleaner JSON output
@@ -90,50 +82,7 @@ class PromptEngineerWorkflow:
         """
         
         # Comprehensive prompt for extraction configuration generation
-        prompt = f"""
-        Create a comprehensive data extraction configuration for the following requirements:
-        
-        {requirements}
-        
-        Generate a complete configuration that includes:
-        
-        1. **JSON Schema**: 
-           - Define all required fields with appropriate data types
-           - Include descriptions for each field
-           - Specify validation constraints where applicable
-           - Use nested objects for complex data structures
-           - Consider optional vs required fields based on document variability
-        
-        2. **System Prompt**: 
-           - Create a clear, authoritative system prompt
-           - Define the extraction agent's role and expertise
-           - Specify output format requirements
-           - Include quality and accuracy guidelines
-        
-        3. **User Prompt Template**: 
-           - Design a template with clear placeholders (e.g., {{document_text}})
-           - Include specific extraction instructions
-           - Guide the model to find and structure the required data
-           - Handle cases where data might be missing or unclear
-        
-        4. **Few-Shot Examples**: 
-           - Provide 2-3 realistic examples showing input documents and expected output
-           - Cover different document formats or edge cases
-           - Demonstrate proper handling of missing or partial data
-           - Show the exact JSON structure expected
-        
-        5. **Extraction Instructions**:
-           - Break down the extraction process into clear steps
-           - Specify how to handle ambiguous or missing data
-           - Define data cleaning and normalization rules
-        
-        6. **Validation Rules**:
-           - Define quality checks for extracted data
-           - Specify required field validation
-           - Include data format validation rules
-        
-        Focus on creating a production-ready configuration that will reliably extract high-quality, structured data from the specified document types.
-        """
+        prompt = load_prompt("workflows/prompt_engineer_base_prompt.txt", requirements=requirements)
         
         # Direct agent call returns RunResponse
         response = self.engineer.run(prompt)
@@ -169,22 +118,11 @@ class PromptEngineerWorkflow:
             for i, doc in enumerate(sample_documents[:3])  # Limit to 3 samples
         ])
         
-        enhanced_prompt = f"""
-        Create a comprehensive data extraction configuration for:
-        
-        **Requirements:** {requirements}
-        
-        **Sample Documents to Analyze:**
-        {documents_section}
-        
-        Use these sample documents to:
-        1. Design a JSON schema that captures all relevant data present
-        2. Create realistic few-shot examples based on actual document content
-        3. Identify common patterns and edge cases in the documents
-        4. Optimize prompts for the specific document format and content style
-        
-        Generate a complete extraction configuration optimized for these document types.
-        """
+        enhanced_prompt = load_prompt(
+            "workflows/prompt_engineer_with_examples_prompt.txt",
+            requirements=requirements,
+            documents_section=documents_section
+        )
         
         # Direct agent call returns RunResponse
         response = self.engineer.run(enhanced_prompt)

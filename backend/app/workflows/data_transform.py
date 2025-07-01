@@ -19,6 +19,7 @@ from ..agents.memory import get_memory, get_session_memory, get_storage
 # Import our shared infrastructure
 from ..agents.models import get_extraction_model, get_reasoning_model, get_search_model
 from ..agents.tools import get_python_tools, get_reasoning_tools
+from ..prompts import load_prompt
 
 
 class DataTransformWorkflow(Workflow):
@@ -50,12 +51,7 @@ class DataTransformWorkflow(Workflow):
             name="Strategist",
             model=get_reasoning_model(model_id=model_id),
             tools=[get_reasoning_tools(add_instructions=True)],
-            instructions=[
-                "Analyze the data extraction request step by step",
-                "Create a clear, actionable execution plan",
-                "Identify document types and optimal extraction approach",
-                "Consider data quality and formatting requirements",
-            ],
+            instructions=load_prompt("workflows/data_transform_strategist_instructions.txt").split('\n'),
             reasoning=True,  # Enable step-by-step reasoning
             show_tool_calls=True,
             stream=True,
@@ -71,13 +67,7 @@ class DataTransformWorkflow(Workflow):
                 get_python_tools(self.working_dir),  # For file reading and processing
                 FileTools(base_dir=Path(self.working_dir)),  # For file operations
             ],
-            instructions=[
-                "Extract structured data from uploaded documents",
-                "Handle multiple file formats: PDF, CSV, Excel, JSON, text",
-                "Use appropriate Python libraries (pandas, openpyxl, PyPDF2) for each format",
-                "Return clean, structured data in JSON format",
-                "Preserve data integrity and handle missing values properly",
-            ],
+            instructions=load_prompt("workflows/data_transform_extractor_instructions.txt").split('\n'),
             stream=True,
             memory=self.workflow_memory,
             storage=self.workflow_storage,
@@ -89,15 +79,7 @@ class DataTransformWorkflow(Workflow):
             name="ExcelGenerator",
             model=get_extraction_model(model_id=model_id),
             tools=[get_python_tools(self.working_dir)],
-            instructions=[
-                "Generate professional Excel reports using pandas and openpyxl",
-                "Create multiple sheets with logical data organization",
-                "Apply professional formatting: headers, colors, borders, fonts",
-                "Include data validation and conditional formatting where appropriate",
-                "Add summary statistics and charts if beneficial",
-                "Save files with descriptive names in the working directory",
-                "Ensure Excel files open correctly in standard applications",
-            ],
+            instructions=load_prompt("workflows/data_transform_generator_instructions.txt").split('\n'),
             memory=self.workflow_memory,
             storage=self.workflow_storage,
             stream=True,
@@ -112,14 +94,7 @@ class DataTransformWorkflow(Workflow):
                 get_python_tools(self.working_dir),
                 FileTools(base_dir=Path(self.working_dir)),
             ],
-            instructions=[
-                "Validate the generated Excel file meets all requirements",
-                "Check data completeness and accuracy against source",
-                "Verify file formatting and professional appearance",
-                "Test file opens correctly and data is accessible",
-                "Provide constructive feedback and quality assessment",
-                "Identify any issues that need correction",
-            ],
+            instructions=load_prompt("workflows/data_transform_validator_instructions.txt").split('\n'),
             stream=True,
             memory=self.workflow_memory,
             storage=self.workflow_storage,
@@ -166,18 +141,11 @@ class DataTransformWorkflow(Workflow):
                         }
                     )
 
-            planning_prompt = f"""
-            Analyze this data extraction request and create an execution plan:
-            
-            Request: {request}
-            Files to process: {json.dumps(file_info, indent=2)}
-            
-            Consider:
-            1. Document types and complexity
-            2. Expected data structure and format
-            3. Quality requirements and validation needs
-            4. Optimal extraction approach for each file type
-            """
+            planning_prompt = load_prompt(
+                "workflows/data_transform_planning_prompt.txt",
+                request=request,
+                file_info=json.dumps(file_info, indent=2)
+            )
 
             # Stream planning results
             for response in self.strategist.run(planning_prompt, stream=True):
@@ -195,22 +163,13 @@ class DataTransformWorkflow(Workflow):
                 content="📊 Phase 2: Data Extraction - Processing documents...",
             )
 
-            extraction_prompt = f"""
-            Execute data extraction based on the strategic plan:
-            
-            Plan: {plan}
-            Request: {request}
-            Files: {json.dumps(file_info, indent=2)}
-            
-            IMPORTANT: Use Python code to:
-            1. Read and process each file in the working directory: {self.working_dir}
-            2. Extract data according to the requirements
-            3. Structure the data cleanly for Excel generation
-            4. Handle any data quality issues or missing values
-            5. Return the processed data in a structured format
-            
-            Save intermediate results to verify extraction quality.
-            """
+            extraction_prompt = load_prompt(
+                "workflows/data_transform_extraction_prompt.txt",
+                plan=plan,
+                request=request,
+                file_info=json.dumps(file_info, indent=2),
+                working_dir=self.working_dir
+            )
 
             # Stream extraction results
             extracted_data = None
@@ -228,24 +187,12 @@ class DataTransformWorkflow(Workflow):
                 content="📋 Phase 3: Excel Generation - Creating professional report...",
             )
 
-            generation_prompt = f"""
-            Generate a professional Excel report from the extracted data:
-            
-            Original Request: {request}
-            Extracted Data: {extracted_data if extracted_data else "No data extracted"}
-            Working Directory: {self.working_dir}
-            
-            Create Excel file with:
-            1. Professional formatting and styling
-            2. Multiple sheets if data is complex
-            3. Headers, proper column widths, and formatting
-            4. Data validation where appropriate
-            5. Summary sheet with key metrics if beneficial
-            
-            Save as: data_extraction_report.xlsx
-            
-            Use pandas and openpyxl for optimal results.
-            """
+            generation_prompt = load_prompt(
+                "workflows/data_transform_generation_prompt.txt",
+                request=request,
+                extracted_data=extracted_data if extracted_data else "No data extracted",
+                working_dir=self.working_dir
+            )
 
             # Stream generation results
             for response in self.generator.run(generation_prompt, stream=True):
@@ -257,22 +204,11 @@ class DataTransformWorkflow(Workflow):
                 content="✅ Phase 4: Quality Validation - Verifying report quality...",
             )
 
-            validation_prompt = f"""
-            Validate the generated Excel report meets all requirements:
-            
-            Original Request: {request}
-            Expected Output: Professional Excel report with extracted data
-            File Location: {self.working_dir}/data_extraction_report.xlsx
-            
-            Check:
-            1. File exists and opens correctly
-            2. Data completeness and accuracy
-            3. Professional formatting and presentation
-            4. Meets original request requirements
-            5. No errors or corruption
-            
-            Provide detailed quality assessment and any recommendations.
-            """
+            validation_prompt = load_prompt(
+                "workflows/data_transform_validation_prompt.txt",
+                request=request,
+                working_dir=self.working_dir
+            )
 
             # Stream validation results
             for response in self.validator.run(validation_prompt, stream=True):

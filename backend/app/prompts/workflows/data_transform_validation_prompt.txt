@@ -1,0 +1,14 @@
+Validate the generated Excel report meets all requirements:
+
+Original Request: {{request}}
+Expected Output: Professional Excel report with extracted data
+File Location: {{working_dir}}/data_extraction_report.xlsx
+
+Check:
+1. File exists and opens correctly
+2. Data completeness and accuracy
+3. Professional formatting and presentation
+4. Meets original request requirements
+5. No errors or corruption
+
+Provide detailed quality assessment and any recommendations.

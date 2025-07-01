@@ -1,0 +1,77 @@
+🎯 TASK: Create a professional data extraction configuration for high-precision document analysis.
+
+📝 REQUEST DETAILS:
+User Intent: {{user_intent}}
+Document Type: {{document_type}}
+Sample Data: {{sample_data}}
+Examples Required: {{example_count}}
+
+🔧 GENERATE THESE COMPONENTS:
+
+1️⃣ **JSON SCHEMA**: Design a comprehensive, nested schema that:
+   - Captures ALL relevant data fields from the user intent
+   - Uses proper JSON Schema validation (types, formats, patterns)
+   - Includes detailed field descriptions
+   - Handles optional vs required fields intelligently
+   - Supports arrays for repeating data
+   - Includes metadata fields (page_number, confidence, location)
+
+2️⃣ **SYSTEM PROMPT**: Create an expert-level system prompt that:
+   - Establishes AI as a forensic-level data extraction specialist
+   - Mandates analysis of EVERY page, section, table, chart, and appendix
+   - Handles multilingual documents with translation requirements
+   - Specifies exact JSON output format adherence
+   - Includes advanced error handling for missing/corrupted data
+   - Demands source attribution (page numbers, locations, context)
+   - Emphasizes accuracy over speed
+   - Includes validation requirements before output
+
+3️⃣ **USER PROMPT TEMPLATE**: Design a precise template that:
+   - Uses {{document_text}} and {{schema}} placeholders correctly
+   - Provides clear instructions for JSON-only output
+   - Includes validation reminders
+   - Specifies handling of edge cases
+
+4️⃣ **REALISTIC EXAMPLES**: Generate {{example_count}} complete examples with:
+   - Realistic input text samples relevant to the user intent
+   - Complete JSON outputs that follow the schema exactly
+   - Diverse scenarios (complete data, partial data, edge cases)
+   - Professional, business-realistic content
+
+5️⃣ **DESIGN REASONING**: Explain schema design choices, prompt strategies, and extraction approach.
+
+🚨 CRITICAL REQUIREMENTS:
+- Output MUST be valid JSON starting with { and ending with }
+- ABSOLUTELY NO markdown blocks, code fences, or formatting
+- NO explanations, descriptions, or additional text outside JSON  
+- Escape all quotes and special characters properly
+- Ensure examples array is never empty
+- All JSON strings must be properly escaped
+- Schema must be a valid JSON string (not object)
+- Return ONLY the JSON object - nothing before or after
+- DO NOT wrap in ```json``` or any code blocks
+
+🏗️ EXACT OUTPUT STRUCTURE:
+{
+    "schema": "ESCAPED_JSON_SCHEMA_STRING",
+    "system_prompt": "COMPREHENSIVE_SYSTEM_PROMPT_TEXT",
+    "user_prompt_template": "PRECISE_USER_TEMPLATE_TEXT",
+    "examples": [
+        {
+            "input": "Realistic document text sample...",
+            "output": "Valid JSON matching schema"
+        },
+        {
+            "input": "Another realistic example...",
+            "output": "Another valid JSON output"
+        }
+    ],
+    "reasoning": "Detailed explanation of design choices"
+}
+
+✅ VALIDATION CHECKLIST:
+- Valid JSON syntax with balanced braces
+- Schema as escaped JSON string
+- Examples array populated with realistic data
+- All quotes properly escaped
+- No trailing commas

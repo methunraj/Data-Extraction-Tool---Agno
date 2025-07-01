@@ -1,0 +1,14 @@
+Execute data extraction based on the strategic plan:
+
+Plan: {{plan}}
+Request: {{request}}
+Files: {{file_info}}
+
+IMPORTANT: Use Python code to:
+1. Read and process each file in the working directory: {{working_dir}}
+2. Extract data according to the requirements
+3. Structure the data cleanly for Excel generation
+4. Handle any data quality issues or missing values
+5. Return the processed data in a structured format
+
+Save intermediate results to verify extraction quality.

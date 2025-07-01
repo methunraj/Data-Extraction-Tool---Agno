@@ -1,0 +1,14 @@
+🚨 EXECUTE PYTHON CODE NOW to create Excel report from this JSON data.
+
+📁 Save to: {{temp_dir}}
+
+🔥 IMMEDIATE ACTION REQUIRED:
+1. Use save_to_file_and_run tool RIGHT NOW
+2. Process the JSON data into Excel worksheets  
+3. Apply professional formatting
+4. Save as 'financial_report.xlsx'
+
+JSON Data:
+{{json_data}}
+
+Your instructions contain all the code you need. EXECUTE IT IMMEDIATELY.

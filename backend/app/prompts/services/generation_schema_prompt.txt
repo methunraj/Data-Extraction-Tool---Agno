@@ -1,0 +1,6 @@
+Generate a JSON schema based on the following user intent:
+User Intent: {{user_intent}}
+
+Include field explanations.
+Return a single JSON object with keys: "schema", "field_explanations".
+The 'schema' value should be a JSON string.

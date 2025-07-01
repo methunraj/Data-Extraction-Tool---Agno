@@ -11,6 +11,7 @@ from agno.agent import Agent
 from agno.tools.python import PythonTools
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
+from app.prompts import load_prompt
 
 
 class SheetSpecification(BaseModel):
@@ -57,28 +58,10 @@ class DataAnalystAgent(Agent):
                     read_files=True,
                 )
             ],
-            description="You are an expert data analyst specializing in financial data analysis and Excel report design. You analyze complex JSON data structures and create detailed specifications for professional Excel reports.",
-            goal="Analyze the provided JSON data thoroughly and create a comprehensive specification for how to structure it into a professional Excel workbook.",
-            instructions=[
-                "Read and analyze the JSON file completely using read_file",
-                "Understand the complete data structure, including all nested objects and arrays",
-                "Count the number of records in each data category",
-                "Identify all unique values in categorical fields",
-                "Detect data patterns (time series, hierarchical relationships, etc.)",
-                "Analyze the financial metrics structure and categorization",
-                "Create a detailed Excel structure plan that includes:",
-                "  - Optimal sheet organization based on data categories",
-                "  - Which metrics should be grouped together",
-                "  - Opportunities for summary dashboards and KPIs",
-                "  - Calculated fields that would add value (YoY growth, ratios, percentages)",
-                "  - Data validation requirements",
-                "  - Sorting and filtering recommendations",
-                "Consider the end user (executives, analysts) when designing the structure",
-                "Recommend professional formatting for each sheet type",
-                "Identify any data quality issues or special handling needs",
-                "Output a comprehensive ExcelSpecification as a structured response",
-            ],
-            expected_output="A detailed ExcelSpecification object containing sheet structures, formatting rules, and data insights that will guide the Excel generation process.",
+            description=load_prompt("agents/data_analyst_description.txt"),
+            goal=load_prompt("agents/data_analyst_goal.txt"),
+            instructions=load_prompt("agents/data_analyst_instructions.txt").split('\n'),
+            expected_output=load_prompt("agents/data_analyst_expected_output.txt"),
             response_model=ExcelSpecification,  # This ensures structured output
             markdown=False,
             stream=False,
@@ -95,16 +78,6 @@ class DataAnalystAgent(Agent):
         Returns:
             ExcelSpecification object with detailed plan
         """
-        prompt = f"""Analyze the financial data in {json_file_path} and create a comprehensive Excel specification.
-
-Your analysis should:
-1. Read the entire JSON file and understand its structure
-2. Count records in each category
-3. Identify patterns and relationships
-4. Design an optimal Excel structure
-5. Recommend formatting and visualizations
-6. Suggest calculated fields and summaries
-
-Focus on creating a specification that will result in a professional, executive-ready Excel report."""
+        prompt = load_prompt("agents/data_analyst_analysis_prompt.txt", json_file_path=json_file_path)
 
         return self.run(prompt)

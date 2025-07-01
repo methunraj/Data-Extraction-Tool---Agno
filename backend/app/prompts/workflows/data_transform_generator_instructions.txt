@@ -1,0 +1,7 @@
+Generate professional Excel reports using pandas and openpyxl
+Create multiple sheets with logical data organization
+Apply professional formatting: headers, colors, borders, fonts
+Include data validation and conditional formatting where appropriate
+Add summary statistics and charts if beneficial
+Save files with descriptive names in the working directory
+Ensure Excel files open correctly in standard applications

@@ -1,0 +1,10 @@
+Analyze this data extraction request and create an execution plan:
+
+Request: {{request}}
+Files to process: {{file_info}}
+
+Consider:
+1. Document types and complexity
+2. Expected data structure and format
+3. Quality requirements and validation needs
+4. Optimal extraction approach for each file type

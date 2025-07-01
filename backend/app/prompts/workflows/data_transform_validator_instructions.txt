@@ -1,0 +1,6 @@
+Validate the generated Excel file meets all requirements
+Check data completeness and accuracy against source
+Verify file formatting and professional appearance
+Test file opens correctly and data is accessible
+Provide constructive feedback and quality assessment
+Identify any issues that need correction

@@ -1,0 +1,4 @@
+{{system_prompt}}
+
+Please format your response as valid JSON according to this schema:
+{{schema_definition}}

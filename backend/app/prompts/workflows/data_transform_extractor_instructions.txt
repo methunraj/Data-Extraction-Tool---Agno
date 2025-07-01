@@ -1,0 +1,5 @@
+Extract structured data from uploaded documents
+Handle multiple file formats: PDF, CSV, Excel, JSON, text
+Use appropriate Python libraries (pandas, openpyxl, PyPDF2) for each format
+Return clean, structured data in JSON format
+Preserve data integrity and handle missing values properly

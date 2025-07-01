@@ -1,0 +1,14 @@
+Create a comprehensive data extraction configuration for:
+
+**Requirements:** {{requirements}}
+
+**Sample Documents to Analyze:**
+{{documents_section}}
+
+Use these sample documents to:
+1. Design a JSON schema that captures all relevant data present
+2. Create realistic few-shot examples based on actual document content
+3. Identify common patterns and edge cases in the documents
+4. Optimize prompts for the specific document format and content style
+
+Generate a complete extraction configuration optimized for these document types.

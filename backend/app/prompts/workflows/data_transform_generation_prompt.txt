@@ -1,0 +1,16 @@
+Generate a professional Excel report from the extracted data:
+
+Original Request: {{request}}
+Extracted Data: {{extracted_data}}
+Working Directory: {{working_dir}}
+
+Create Excel file with:
+1. Professional formatting and styling
+2. Multiple sheets if data is complex
+3. Headers, proper column widths, and formatting
+4. Data validation where appropriate
+5. Summary sheet with key metrics if beneficial
+
+Save as: data_extraction_report.xlsx
+
+Use pandas and openpyxl for optimal results.

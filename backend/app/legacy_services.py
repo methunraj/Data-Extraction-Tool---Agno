@@ -21,6 +21,7 @@ from agno.agent import Agent, RunResponse
 from agno.workflow import Workflow
 
 from .core.config import settings
+from .prompts import load_prompt
 # from .agents import create_agent  # Legacy import - removed
 # Placeholder for create_agent function
 def create_agent(*args, **kwargs):
@@ -240,20 +241,11 @@ class FinancialReportWorkflow(Workflow):
                 raise asyncio.CancelledError("Workflow cancelled by client request.")
 
             # 3. Code Generation Agent
-            codegen_prompt = f"""🚨 EXECUTE PYTHON CODE NOW to create Excel report from this JSON data.
-
-📁 Save to: {self.temp_dir}
-
-🔥 IMMEDIATE ACTION REQUIRED:
-1. Use save_to_file_and_run tool RIGHT NOW
-2. Process the JSON data into Excel worksheets  
-3. Apply professional formatting
-4. Save as 'financial_report.xlsx'
-
-JSON Data:
-{json.dumps(json_data, indent=2)}
-
-Your instructions contain all the code you need. EXECUTE IT IMMEDIATELY."""
+            codegen_prompt = load_prompt(
+                "services/legacy_codegen_prompt.txt",
+                temp_dir=self.temp_dir,
+                json_data=json.dumps(json_data, indent=2)
+            )
             
             if broadcaster:
                 try:

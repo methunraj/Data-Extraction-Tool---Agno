@@ -19,6 +19,7 @@ from ..schemas.extraction import (
 from .model_service import ModelService
 from .token_service import TokenService
 from .cache_service import CacheService
+from ..prompts import load_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -223,7 +224,11 @@ class ExtractionService:
             # Fallback to old behavior for backward compatibility
             # Add document content
             if request.document_text:
-                user_parts.append({"text": f"Document to extract from:\n{request.document_text}"})
+                document_prefix = load_prompt(
+                    "services/extraction_document_prefix.txt",
+                    document_text=request.document_text
+                )
+                user_parts.append({"text": document_prefix})
             elif request.document_file:
                 # Handle file upload for multimodal input
                 file_data = await self._prepare_file_content(request.document_file)
@@ -231,7 +236,11 @@ class ExtractionService:
             
             # Add user task description if provided
             if request.user_task_description:
-                user_parts.append({"text": f"\nTask: {request.user_task_description}"})
+                task_text = load_prompt(
+                    "services/extraction_task_prefix.txt",
+                    user_task_description=request.user_task_description
+                )
+                user_parts.append({"text": f"\n{task_text}"})
         
         # Add examples if provided
         if request.examples:
@@ -257,7 +266,11 @@ class ExtractionService:
         # Always use basic JSON mode and include schema in system instruction
         # This approach is more flexible and handles both JSON schemas and text descriptions
         config_dict = {
-            "system_instruction": f"{request.system_prompt}\n\nPlease format your response as valid JSON according to this schema:\n{request.schema_definition}",
+            "system_instruction": load_prompt(
+                "services/extraction_system_instruction.txt",
+                system_prompt=request.system_prompt,
+                schema_definition=request.schema_definition
+            ),
             "temperature": request.temperature,
             "response_mime_type": "application/json"
         }

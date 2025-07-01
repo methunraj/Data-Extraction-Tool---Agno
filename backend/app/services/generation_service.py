@@ -15,6 +15,7 @@ from ..schemas.generation import (
     RefineConfigRequest, RefineConfigResponse
 )
 from .model_service import ModelService
+from ..prompts import load_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -47,83 +48,13 @@ class GenerationService:
         logger.info(f"Generation request received with model_name: {request.model_name}")
         agent: PromptEngineerAgent = create_agent("prompt_engineer", model_id=request.model_name)
         
-        generation_prompt = f"""🎯 TASK: Create a professional data extraction configuration for high-precision document analysis.
-
-📝 REQUEST DETAILS:
-User Intent: {request.user_intent}
-Document Type: {request.document_type or "general"}
-Sample Data: {request.sample_data or "not provided"}
-Examples Required: {max(2, request.example_count)}
-
-🔧 GENERATE THESE COMPONENTS:
-
-1️⃣ **JSON SCHEMA**: Design a comprehensive, nested schema that:
-   - Captures ALL relevant data fields from the user intent
-   - Uses proper JSON Schema validation (types, formats, patterns)
-   - Includes detailed field descriptions
-   - Handles optional vs required fields intelligently
-   - Supports arrays for repeating data
-   - Includes metadata fields (page_number, confidence, location)
-
-2️⃣ **SYSTEM PROMPT**: Create an expert-level system prompt that:
-   - Establishes AI as a forensic-level data extraction specialist
-   - Mandates analysis of EVERY page, section, table, chart, and appendix
-   - Handles multilingual documents with translation requirements
-   - Specifies exact JSON output format adherence
-   - Includes advanced error handling for missing/corrupted data
-   - Demands source attribution (page numbers, locations, context)
-   - Emphasizes accuracy over speed
-   - Includes validation requirements before output
-
-3️⃣ **USER PROMPT TEMPLATE**: Design a precise template that:
-   - Uses {{{{document_text}}}} and {{{{schema}}}} placeholders correctly
-   - Provides clear instructions for JSON-only output
-   - Includes validation reminders
-   - Specifies handling of edge cases
-
-4️⃣ **REALISTIC EXAMPLES**: Generate {max(2, request.example_count)} complete examples with:
-   - Realistic input text samples relevant to the user intent
-   - Complete JSON outputs that follow the schema exactly
-   - Diverse scenarios (complete data, partial data, edge cases)
-   - Professional, business-realistic content
-
-5️⃣ **DESIGN REASONING**: Explain schema design choices, prompt strategies, and extraction approach.
-
-🚨 CRITICAL REQUIREMENTS:
-- Output MUST be valid JSON starting with {{ and ending with }}
-- ABSOLUTELY NO markdown blocks, code fences, or formatting
-- NO explanations, descriptions, or additional text outside JSON  
-- Escape all quotes and special characters properly
-- Ensure examples array is never empty
-- All JSON strings must be properly escaped
-- Schema must be a valid JSON string (not object)
-- Return ONLY the JSON object - nothing before or after
-- DO NOT wrap in ```json``` or any code blocks
-
-🏗️ EXACT OUTPUT STRUCTURE:
-{{
-    "schema": "ESCAPED_JSON_SCHEMA_STRING",
-    "system_prompt": "COMPREHENSIVE_SYSTEM_PROMPT_TEXT",
-    "user_prompt_template": "PRECISE_USER_TEMPLATE_TEXT",
-    "examples": [
-        {{
-            "input": "Realistic document text sample...",
-            "output": "Valid JSON matching schema"
-        }},
-        {{
-            "input": "Another realistic example...",
-            "output": "Another valid JSON output"
-        }}
-    ],
-    "reasoning": "Detailed explanation of design choices"
-}}
-
-✅ VALIDATION CHECKLIST:
-- Valid JSON syntax with balanced braces
-- Schema as escaped JSON string
-- Examples array populated with realistic data
-- All quotes properly escaped
-- No trailing commas"""
+        generation_prompt = load_prompt(
+            "services/generation_unified_config_prompt.txt",
+            user_intent=request.user_intent,
+            document_type=request.document_type or "general",
+            sample_data=request.sample_data or "not provided",
+            example_count=max(2, request.example_count)
+        )
         
         response = await agent.arun(generation_prompt)
         
@@ -227,11 +158,11 @@ Examples Required: {max(2, request.example_count)}
             
         system_prompt = result.get("system_prompt", "")
         if not system_prompt:
-            system_prompt = "🔬 You are a forensic-level data extraction specialist with expertise in document analysis. Your mission: Extract ALL requested information with surgical precision.\n\n📋 CORE DIRECTIVES:\n• Analyze EVERY page, section, table, chart, footnote, and appendix\n• Extract data in ANY language, translating key terms to English\n• Maintain 100% accuracy - verify all data points\n• Include source attribution: page numbers, locations, context\n• Handle missing data by using null values\n• Output ONLY valid JSON conforming to the provided schema\n\n⚡ QUALITY STANDARDS:\n• Cross-reference data across multiple sources within the document\n• Validate numerical values and formats\n• Preserve original terminology in quotes when relevant\n• Flag any inconsistencies or anomalies found\n\n🎯 OUTPUT REQUIREMENTS:\n• Single valid JSON object only\n• No explanations or additional text\n• Proper escaping of all special characters\n• Include metadata: page_number, location, confidence_level"
+            system_prompt = load_prompt("services/generation_fallback_system_prompt.txt")
             
         user_prompt_template = result.get("user_prompt_template", "")
         if not user_prompt_template:
-            user_prompt_template = "📄 DOCUMENT ANALYSIS TASK\n\n🎯 Extract data according to this JSON schema:\n{{schema}}\n\n📝 Document content:\n{{document_text}}\n\n🚨 REQUIREMENTS:\n- Return ONLY valid JSON matching the schema\n- Include page numbers and locations where data was found\n- Use null for missing data\n- Ensure proper JSON formatting"
+            user_prompt_template = load_prompt("services/generation_fallback_user_template.txt")
 
         return GenerateConfigResponse(
             schema=schema,
@@ -247,14 +178,10 @@ Examples Required: {max(2, request.example_count)}
         """Generate a JSON schema using the Prompt Engineer Agent."""
         agent: PromptEngineerAgent = create_agent("prompt_engineer", model_id=request.model_name)
 
-        prompt = f"""
-        Generate a JSON schema based on the following user intent:
-        User Intent: {request.user_intent}
-        
-        Include field explanations.
-        Return a single JSON object with keys: "schema", "field_explanations".
-        The 'schema' value should be a JSON string.
-        """
+        prompt = load_prompt(
+            "services/generation_schema_prompt.txt",
+            user_intent=request.user_intent
+        )
         
         response = await agent.arun(prompt)
         result = await self._parse_agent_response(response.content)
@@ -271,27 +198,11 @@ Examples Required: {max(2, request.example_count)}
         """Generate prompts using the Prompt Engineer Agent."""
         agent: PromptEngineerAgent = create_agent("prompt_engineer", model_id=request.model_name)
 
-        prompt = f"""
-        Generate prompts for the following extraction goal and schema:
-        Extraction Goal: {request.extraction_goal}
-        Schema: {request.schema}
-
-        Generate a system prompt and a user prompt template.
-        
-        CRITICAL OUTPUT REQUIREMENTS:
-        1. Return ONLY a single valid JSON object
-        2. No markdown code blocks, no explanations, no additional text
-        3. Start with {{ and end with }}
-        4. Use proper JSON syntax with double quotes
-        5. Escape quotes inside strings with backslashes
-        6. No trailing commas
-        
-        Required JSON structure:
-        {{
-            "system_prompt": "DETAILED_SYSTEM_PROMPT_HERE",
-            "user_prompt_template": "USER_TEMPLATE_WITH_PLACEHOLDERS_HERE"
-        }}
-        """
+        prompt = load_prompt(
+            "services/generation_prompts_prompt.txt",
+            extraction_goal=request.extraction_goal,
+            schema=request.schema
+        )
 
         response = await agent.arun(prompt)
         result = await self._parse_agent_response(response.content)

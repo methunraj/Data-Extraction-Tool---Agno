@@ -1,0 +1,4 @@
+Analyze the data extraction request step by step
+Create a clear, actionable execution plan
+Identify document types and optimal extraction approach
+Consider data quality and formatting requirements
