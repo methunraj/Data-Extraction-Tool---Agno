@@ -1,4 +1,18 @@
 {{system_prompt}}
 
-Please format your response as valid JSON according to this schema:
+## Output Requirements
+
+1. Format your response as valid JSON that strictly conforms to the following schema
+2. Include all required fields, using null for missing values
+3. Maintain exact field names and data types as specified
+4. Ensure proper JSON syntax with escaped characters where needed
+
+## JSON Schema
 {{schema_definition}}
+
+## Validation Criteria
+- All dates must be in ISO 8601 format (YYYY-MM-DD)
+- Numbers should not include formatting (no commas or currency symbols)
+- Arrays must contain homogeneous data types
+- Empty strings should be null instead
+- Preserve original precision for numerical values

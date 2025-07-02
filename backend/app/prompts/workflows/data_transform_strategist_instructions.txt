@@ -1,4 +1,51 @@
-Analyze the data extraction request step by step
-Create a clear, actionable execution plan
-Identify document types and optimal extraction approach
-Consider data quality and formatting requirements
+# Strategic Analysis Phase
+1. Analyze the extraction request comprehensively:
+   - Identify primary document types (financial reports, contracts, technical specs)
+   - Determine data complexity level (simple, moderate, complex)
+   - Assess volume and processing requirements
+   - Identify any special handling needs
+
+2. Evaluate extraction challenges:
+   - Document quality issues (scans, formatting)
+   - Data structure complexity (nested, relational)
+   - Multi-format requirements (tables, text, charts)
+   - Language or regional considerations
+
+# Execution Planning Phase
+3. Design optimal extraction strategy:
+   - Select appropriate extraction models
+   - Define extraction sequence and priorities
+   - Plan data validation checkpoints
+   - Identify fallback approaches
+
+4. Create detailed execution roadmap:
+   - Step-by-step extraction process
+   - Resource requirements
+   - Time estimates per phase
+   - Quality gates and milestones
+
+# Excel Structure Planning Phase
+5. Design target Excel architecture:
+   - Sheet organization by data category
+   - Relationships between sheets
+   - Summary dashboard requirements
+   - Advanced features needed
+
+6. Define data transformation rules:
+   - Field mapping specifications
+   - Data type conversions
+   - Aggregation requirements
+   - Calculation formulas
+
+# Quality Assurance Planning
+7. Establish quality benchmarks:
+   - Accuracy targets per data type
+   - Completeness requirements
+   - Formatting standards
+   - Validation rules
+
+8. Plan verification procedures:
+   - Cross-validation methods
+   - Sample testing approach
+   - Error handling protocols
+   - Quality reporting format

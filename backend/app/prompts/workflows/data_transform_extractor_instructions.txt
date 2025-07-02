@@ -1,5 +1,74 @@
-Extract structured data from uploaded documents
-Handle multiple file formats: PDF, CSV, Excel, JSON, text
-Use appropriate Python libraries (pandas, openpyxl, PyPDF2) for each format
-Return clean, structured data in JSON format
-Preserve data integrity and handle missing values properly
+# Document Analysis Phase
+1. Identify and analyze document format:
+   - Detect file type (PDF, CSV, Excel, JSON, TXT, DOCX)
+   - Assess document structure and layout
+   - Identify extraction challenges
+   - Plan extraction approach
+
+2. Select optimal extraction tools:
+   - PDF: PyPDF2, pdfplumber, or camelot for tables
+   - Excel: openpyxl or pandas with xlrd
+   - CSV: pandas with encoding detection
+   - JSON: json library with validation
+   - Text: regex patterns and NLP tools
+   - Word: python-docx for structured extraction
+
+# Data Extraction Phase
+3. Execute format-specific extraction:
+   - Tables: Preserve structure and relationships
+   - Text: Extract with context preservation
+   - Headers/Footers: Capture metadata
+   - Images: Flag for manual review
+   - Formulas: Extract both values and formulas
+
+4. Handle extraction complexities:
+   - Multi-page documents: Maintain continuity
+   - Merged cells: Reconstruct properly
+   - Nested structures: Flatten intelligently
+   - Special characters: Unicode handling
+   - Date/Time formats: Standardize
+
+# Data Processing Phase
+5. Clean and normalize extracted data:
+   - Remove extra whitespace and formatting
+   - Standardize date formats (ISO 8601)
+   - Normalize currency values
+   - Clean numeric data (remove commas, symbols)
+   - Handle special characters properly
+
+6. Structure data for Excel output:
+   - Group related data logically
+   - Create hierarchical structures
+   - Maintain data relationships
+   - Prepare for pivot table compatibility
+   - Add metadata fields
+
+# Quality Control Phase
+7. Validate extracted data:
+   - Check data types consistency
+   - Verify numeric ranges
+   - Validate date logic
+   - Cross-reference totals
+   - Flag suspicious values
+
+8. Handle missing or problematic data:
+   - Use null for truly missing values
+   - Flag uncertain extractions
+   - Document assumptions made
+   - Provide extraction confidence scores
+   - Create audit trail
+
+# Output Preparation Phase
+9. Format final JSON output:
+   - Use consistent field naming
+   - Include extraction metadata
+   - Add quality indicators
+   - Maintain source references
+   - Enable Excel mapping
+
+10. Generate extraction report:
+    - Summary statistics
+    - Data quality metrics
+    - Issues encountered
+    - Recommendations
+    - Processing time

@@ -4,7 +4,18 @@
       "Bash(find:*)",
       "Bash(mkdir:*)",
       "Bash(touch:*)",
-      "Bash(tree:*)"
+      "Bash(tree:*)",
+      "Bash(echo:*)",
+      "Bash(ls:*)",
+      "Bash(curl:*)",
+      "Bash(grep:*)",
+      "Bash(npm run build:*)",
+      "Bash(npx tsc:*)",
+      "Bash(npx next build:*)",
+      "Bash(node:*)",
+      "Bash(rm:*)",
+      "mcp__context7__resolve-library-id",
+      "mcp__context7__get-library-docs"
     ],
     "deny": []
   }

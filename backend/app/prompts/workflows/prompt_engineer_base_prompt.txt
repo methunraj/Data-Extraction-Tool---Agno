@@ -1,42 +1,130 @@
-Create a comprehensive data extraction configuration for the following requirements:
+# Extraction Configuration Request
 
+## Requirements
 {{requirements}}
 
-Generate a complete configuration that includes:
+## Configuration Components to Generate
 
-1. **JSON Schema**: 
-   - Define all required fields with appropriate data types
-   - Include descriptions for each field
-   - Specify validation constraints where applicable
-   - Use nested objects for complex data structures
-   - Consider optional vs required fields based on document variability
+### 1. JSON Schema Design
+Create a comprehensive JSON schema with:
+- **Field Definitions**:
+  * Use camelCase for field names
+  * Select precise data types (string, number, integer, boolean, array, object)
+  * Add meaningful descriptions (min 10 words) for each field
+  * Include format specifiers (date-time, email, uri, uuid)
+  * Set appropriate constraints (minLength, maxLength, minimum, maximum, pattern)
 
-2. **System Prompt**: 
-   - Create a clear, authoritative system prompt
-   - Define the extraction agent's role and expertise
-   - Specify output format requirements
-   - Include quality and accuracy guidelines
+- **Structure Optimization**:
+  * Group related fields in nested objects
+  * Use arrays for repeating elements with clear item schemas
+  * Define enums for fields with fixed options
+  * Mark required fields based on business criticality
+  * Include $schema and title at root level
 
-3. **User Prompt Template**: 
-   - Design a template with clear placeholders (e.g., {{document_text}})
-   - Include specific extraction instructions
-   - Guide the model to find and structure the required data
-   - Handle cases where data might be missing or unclear
+### 2. System Prompt Engineering
+Craft an expert-level system prompt with:
+- **Role Definition**: "You are a [specific domain] extraction specialist..."
+- **Expertise Areas**: List 3-5 relevant competencies
+- **Quality Standards**: 
+  * Accuracy requirements (>95% for critical fields)
+  * Completeness expectations
+  * Formatting consistency rules
+- **Behavioral Guidelines**:
+  * Extract only present information
+  * Handle ambiguity transparently
+  * Maintain data fidelity
 
-4. **Few-Shot Examples**: 
-   - Provide 2-3 realistic examples showing input documents and expected output
-   - Cover different document formats or edge cases
-   - Demonstrate proper handling of missing or partial data
-   - Show the exact JSON structure expected
+### 3. User Prompt Template
+Design a structured template with:
+```
+## Document Content
+{{document_content}}
 
-5. **Extraction Instructions**:
-   - Break down the extraction process into clear steps
-   - Specify how to handle ambiguous or missing data
-   - Define data cleaning and normalization rules
+## Extraction Task
+[Clear, numbered instructions]
 
-6. **Validation Rules**:
-   - Define quality checks for extracted data
-   - Specify required field validation
-   - Include data format validation rules
+## Schema Reference
+{{schema}}
 
-Focus on creating a production-ready configuration that will reliably extract high-quality, structured data from the specified document types.
+## Output Requirements
+[Specific formatting rules]
+```
+
+Include:
+- Progressive extraction steps (analyze → identify → extract → validate)
+- Field-specific guidance for complex extractions
+- Error handling instructions
+- Quality checkpoint reminders
+
+### 4. Few-Shot Examples (3 Required)
+Provide diverse examples covering:
+
+**Example 1: Standard Case**
+- Input: Typical document with all fields
+- Output: Complete JSON following schema
+- Notes: Highlight standard extraction patterns
+
+**Example 2: Edge Case**
+- Input: Document with missing/ambiguous data
+- Output: JSON with null values and metadata
+- Notes: Demonstrate proper null handling
+
+**Example 3: Complex Case**
+- Input: Document with nested/repeated structures
+- Output: JSON with arrays and nested objects
+- Notes: Show advanced extraction techniques
+
+### 5. Extraction Instructions
+Detailed step-by-step process:
+
+1. **Document Analysis**:
+   - Identify document type and structure
+   - Locate relevant sections
+   - Assess data quality
+
+2. **Field Extraction**:
+   - Primary fields: Direct extraction methods
+   - Calculated fields: Derivation formulas
+   - Contextual fields: Inference rules
+
+3. **Data Processing**:
+   - Cleaning: Remove artifacts, normalize whitespace
+   - Formatting: Apply consistent formats
+   - Validation: Check against schema constraints
+
+4. **Quality Assurance**:
+   - Completeness check
+   - Accuracy verification
+   - Consistency validation
+
+### 6. Validation Rules
+Comprehensive validation framework:
+
+**Field-Level Validation**:
+- Required fields must be non-null
+- Data types must match schema
+- Formats must comply with patterns
+- Values must fall within constraints
+
+**Cross-Field Validation**:
+- Date relationships (start < end)
+- Numeric relationships (subtotal < total)
+- Logical dependencies
+- Referential integrity
+
+**Document-Level Validation**:
+- Minimum extraction threshold (>80% fields)
+- Confidence scoring per field
+- Overall quality assessment
+- Error reporting format
+
+## Output Format
+Return the complete configuration as a JSON object with these exact keys:
+- schema: The JSON schema object
+- systemPrompt: The system prompt string
+- userPromptTemplate: The user prompt template string
+- examples: Array of example objects
+- extractionInstructions: Detailed instructions string
+- validationRules: Validation rules object
+
+Ensure the configuration is production-ready, thoroughly tested, and optimized for high-accuracy extraction.

@@ -176,6 +176,63 @@ export function JobProvider({ children }: { children: React.ReactNode }) {
     setJobQueue([]); 
   }, []);
 
+  // Helper function to download files using the proxy endpoint
+  const downloadFile = useCallback(async (sessionId: string, fileName: string) => {
+    try {
+      console.log(`[downloadFile] Starting download for session: ${sessionId}, file: ${fileName}`);
+      
+      // Use the frontend proxy endpoint to avoid CORS issues
+      const proxyUrl = `/api/download-proxy/${sessionId}?filename=${encodeURIComponent(fileName)}`;
+      
+      const response = await fetch(proxyUrl, {
+        method: 'GET',
+        headers: {
+          'Accept': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        },
+      });
+
+      if (!response.ok) {
+        let errorMessage = 'Download failed';
+        try {
+          const errorData = await response.json();
+          errorMessage = errorData.error || errorMessage;
+        } catch {
+          errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+        }
+        throw new Error(errorMessage);
+      }
+
+      // Get the file as a blob
+      const blob = await response.blob();
+      
+      if (!blob || blob.size === 0) {
+        throw new Error('Empty file received');
+      }
+
+      // Create download link and trigger download
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = fileName;
+      document.body.appendChild(link);
+      link.click();
+      
+      // Cleanup
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+      
+      console.log(`[downloadFile] Successfully downloaded: ${fileName} (${blob.size} bytes)`);
+      
+    } catch (error) {
+      console.error(`[downloadFile] Error downloading file:`, error);
+      toast({
+        title: "Download Failed",
+        description: `Failed to download ${fileName}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        variant: "destructive"
+      });
+      throw error;
+    }
+  }, [toast]);
 
   const startProcessingJobQueue = useCallback(async (
     filesToProcess: AppFile[], 
@@ -345,13 +402,8 @@ export function JobProvider({ children }: { children: React.ReactNode }) {
                   tokens.agnoProcessingCost = agnoResult.processingCost;
                 }
                 
-                // Trigger automatic download of the enhanced XLSX file
-                const link = document.createElement('a');
-                link.href = agnoResult.download_url;
-                link.download = agnoResult.file_name || `enhanced_${fileJob.name}.xlsx`;
-                document.body.appendChild(link);
-                link.click();
-                document.body.removeChild(link);
+                // Trigger automatic download of the enhanced XLSX file using fetch + blob approach
+                await downloadFile(agnoResult.session_id, agnoResult.file_name || `enhanced_${fileJob.name}.xlsx`);
                 
                 console.log(`\n=== AGNO PROCESSING RESULTS ===`);
                 console.log(`File: ${fileJob.name}`);

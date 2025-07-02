@@ -1,19 +1,96 @@
-The JSON contains financial data with these typical structures:
-- company_identification: Basic company info (name, industry, location, etc.)
-- financial_metrics: Array of metric objects with fields like:
-  * metric_category (Revenue/Sales, Profitability Metrics, Balance Sheet, etc.)
-  * metric_name, term_used_in_report, raw_value_string, extracted_value
-  * currency, context_qualifiers (array), reporting_year, page_number, section_name
-- extraction_notes: Metadata about the extraction process
+# Expected JSON Structure Reference
 
-Create sheets that make sense for the data:
-1. Company Overview - nicely formatted company details
-2. Financial Summary - key metrics dashboard
-3. Revenue Metrics - all revenue-related data
-4. Profitability Metrics - all profit/loss data
-5. Balance Sheet Metrics - balance sheet items
-6. Cash Flow Metrics - cash flow data
-7. Employee Metrics - employee-related data
-8. Data Quality - extraction notes and unusual findings
+## Core Data Structures
+1. **company_identification** (Object):
+   - name: Company legal name
+   - industry: Industry classification
+   - location: Headquarters location
+   - fiscal_year_end: Financial year end date
+   - reporting_currency: Primary currency
+   - exchange_listing: Stock exchange info
 
-Use pandas with openpyxl/xlsxwriter for advanced formatting capabilities.
+2. **financial_metrics** (Array of Objects):
+   - metric_category: Classification (Revenue, Profitability, Balance Sheet, etc.)
+   - metric_name: Standard metric name
+   - term_used_in_report: Original term from source
+   - raw_value_string: Original value as appeared
+   - extracted_value: Normalized numeric value
+   - currency: Currency code
+   - context_qualifiers: Array of additional context
+   - reporting_year: Fiscal year
+   - reporting_period: Quarter/Annual
+   - page_number: Source page reference
+   - section_name: Document section
+
+3. **extraction_notes** (Object):
+   - extraction_date: When data was extracted
+   - source_document: Original file name
+   - confidence_scores: Extraction confidence
+   - data_quality_flags: Any issues found
+
+# Professional Excel Structure Guidelines
+
+## Sheet Organization Strategy
+1. **Executive Dashboard** (First Sheet):
+   - Company snapshot with logo placeholder
+   - Key financial ratios with visual indicators
+   - YoY performance summary with sparklines
+   - Quick navigation links to detail sheets
+
+2. **Company Overview**:
+   - Professional layout with company details
+   - Key facts in an easy-to-read format
+   - Industry benchmarking placeholders
+   - Fiscal calendar information
+
+3. **Financial Performance Sheets**:
+   - Revenue Analysis (trends, segments, growth)
+   - Profitability Analysis (margins, ratios)
+   - Balance Sheet Summary (assets, liabilities, equity)
+   - Cash Flow Analysis (operating, investing, financing)
+   - Operational Metrics (efficiency ratios)
+
+4. **Detailed Analysis Sheets**:
+   - Time Series Analysis (multi-year trends)
+   - Ratio Analysis (with industry comparisons)
+   - Segment Performance (if applicable)
+   - Quarterly Progression (for current year)
+
+5. **Data Quality & Metadata**:
+   - Extraction confidence scores
+   - Data completeness indicators
+   - Source references
+   - Audit trail information
+
+# Excel Best Practices
+
+## Color Palette
+- Primary Blue: #1F4788 (Headers)
+- Secondary Blue: #4472C4 (Subheaders)
+- Light Blue: #D9E2F3 (Alternating rows)
+- Success Green: #70AD47 (Positive values)
+- Warning Orange: #FFC000 (Caution items)
+- Alert Red: #C5504B (Negative/Alert values)
+- Neutral Gray: #A5A5A5 (Borders/Disabled)
+
+## Formatting Standards
+- Font: Calibri throughout
+- Header Size: 12pt Bold
+- Data Size: 11pt Regular
+- Title Size: 16pt Bold
+- Number Format: #,##0.00
+- Currency Format: $#,##0.00
+- Percentage Format: 0.00%
+- Date Format: DD-MMM-YYYY
+
+## Advanced Features to Implement
+1. Named Ranges for key metrics
+2. Data Tables for sensitivity analysis
+3. Slicers for filtering (Excel 2010+)
+4. Conditional Formatting Rules:
+   - Heat maps for performance
+   - Data bars for comparisons
+   - Icon sets for trends
+5. Protection for formula cells
+6. Print settings configured
+7. Custom number formats for millions/billions

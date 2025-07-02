@@ -1,17 +1,93 @@
-Read and analyze the JSON file completely using read_file
-Understand the complete data structure, including all nested objects and arrays
-Count the number of records in each data category
-Identify all unique values in categorical fields
-Detect data patterns (time series, hierarchical relationships, etc.)
-Analyze the financial metrics structure and categorization
-Create a detailed Excel structure plan that includes:
-  - Optimal sheet organization based on data categories
-  - Which metrics should be grouped together
-  - Opportunities for summary dashboards and KPIs
-  - Calculated fields that would add value (YoY growth, ratios, percentages)
-  - Data validation requirements
-  - Sorting and filtering recommendations
-Consider the end user (executives, analysts) when designing the structure
-Recommend professional formatting for each sheet type
-Identify any data quality issues or special handling needs
-Output a comprehensive ExcelSpecification as a structured response
+# Data Analysis Phase
+1. Read and parse the JSON file completely using the read_file tool
+2. Map the entire data structure including all nested objects, arrays, and relationships
+3. Calculate total record counts for each data category and subcategory
+4. Identify and catalog all unique values in categorical/enum fields
+
+# Pattern Recognition Phase
+5. Detect and document data patterns:
+   - Time series patterns (dates, periods, trends)
+   - Hierarchical relationships between entities
+   - Cross-references and foreign key relationships
+   - Numerical patterns and distributions
+
+# Financial Analysis Phase
+6. Analyze financial metrics in detail:
+   - Revenue streams and categorization
+   - Cost structures and breakdowns
+   - Profitability metrics and margins
+   - Key performance indicators (KPIs)
+
+# Excel Structure Design Phase
+7. Design optimal sheet organization:
+   - Group related data into logical sheets
+   - Plan sheet naming (max 31 chars, no special chars)
+   - Define sheet order for logical flow
+   - Consider data volume per sheet
+
+8. Plan summary dashboards:
+   - Executive summary with key metrics
+   - Visual indicators for performance
+   - Drill-down capabilities to detail sheets
+   - Cross-sheet references for live updates
+
+9. Define calculated fields:
+   - Year-over-Year (YoY) growth percentages
+   - Month-over-Month (MoM) comparisons
+   - Ratios (profit margins, efficiency ratios)
+   - Running totals and averages
+   - Variance analysis fields
+
+# Data Quality & Formatting Phase
+10. Specify data validation rules:
+    - Required fields that cannot be empty
+    - Valid ranges for numerical data
+    - Date format constraints
+    - Dropdown lists for categorical data
+
+11. Define professional formatting:
+    - Headers: Bold, colored backgrounds
+    - Currency: Accounting format with symbols
+    - Percentages: 2 decimal places with % symbol
+    - Dates: Consistent format (DD-MMM-YYYY)
+    - Numbers: Thousand separators
+
+12. Plan advanced features:
+    - Conditional formatting rules for insights
+    - Pivot table opportunities
+    - Chart recommendations
+    - Filter and sort configurations
+
+# Quality Assurance Phase
+13. Identify data quality considerations:
+    - Missing or null value handling
+    - Outlier detection and flagging
+    - Data consistency checks
+    - Special handling requirements
+
+14. Consider end-user requirements:
+    - Executive dashboard needs
+    - Analyst detailed views
+    - Export/print considerations
+    - Mobile viewing compatibility
+
+# Output Generation Phase
+15. Generate comprehensive ExcelSpecification:
+    - Complete sheet structures
+    - Formatting rules per sheet
+    - Formula definitions
+    - Validation rules
+    - Chart specifications
+    - Summary insights
+
+16. Include implementation notes:
+    - Complex formula explanations
+    - Data transformation requirements
+    - Performance considerations
+    - Update frequency recommendations
+
+17. Provide data insights summary:
+    - Key findings from analysis
+    - Data quality observations
+    - Improvement recommendations
+    - Business intelligence opportunities

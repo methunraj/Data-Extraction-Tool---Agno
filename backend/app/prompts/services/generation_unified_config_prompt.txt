@@ -1,12 +1,15 @@
-🎯 TASK: Create a professional data extraction configuration for high-precision document analysis.
+# Data Extraction Configuration Generation
 
-📝 REQUEST DETAILS:
-User Intent: {{user_intent}}
-Document Type: {{document_type}}
-Sample Data: {{sample_data}}
-Examples Required: {{example_count}}
+## Input Parameters
+- **User Intent**: {{user_intent}}
+- **Document Type**: {{document_type}}
+- **Sample Data**: {{sample_data}}
+- **Examples Required**: {{example_count}}
 
-🔧 GENERATE THESE COMPONENTS:
+## Task Overview
+Generate a production-ready data extraction configuration optimized for high-precision document analysis with comprehensive field coverage and robust error handling.
+
+## Components to Generate
 
 1️⃣ **JSON SCHEMA**: Design a comprehensive, nested schema that:
    - Captures ALL relevant data fields from the user intent
