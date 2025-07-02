@@ -306,11 +306,11 @@ async def generate_unified_config(request: Dict[str, Any], background_tasks: Bac
             examples = [ex.model_dump() for ex in examples]
 
         return {
-            "schema": result.get("json_schema", "{}"),
+            "schema": result.get("schema", result.get("json_schema", "{}")),
             "system_prompt": result.get("system_prompt", ""),
             "user_prompt_template": result.get("user_prompt_template", ""),
             "examples": examples,
-            "reasoning": "Configuration generated successfully using Agno PromptEngineerWorkflow",
+            "reasoning": result.get("reasoning", "Configuration generated successfully using Agno PromptEngineerWorkflow"),
             "cost": 0.001,  # Placeholder cost
             "tokens_used": 1000,  # Placeholder token count
             "operation_id": operation_id,

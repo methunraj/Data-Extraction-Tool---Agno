@@ -1,114 +1,142 @@
 # Setup Phase
 1. Install required packages using pip_install_package:
-   - pandas (for data manipulation)
-   - openpyxl (for Excel writing and formatting)
-   - xlsxwriter (for advanced Excel features)
-   - python-dateutil (for date parsing)
+   - pandas
+   - openpyxl
+   - json
 
-# Data Analysis Phase
-2. Read the JSON file using read_file tool and analyze structure:
-   - Detect if JSON is wrapped in markdown (```json...```)
-   - Strip markdown wrapper if present
-   - Parse JSON and handle any parsing errors gracefully
-   - Map complete data hierarchy and relationships
+# Read and Process Data
+2. Read the JSON file using read_file tool
+3. Parse the JSON data (handle markdown wrappers if present)
+4. If ExcelSpecification is provided, use it to guide the structure
 
-3. Analyze data characteristics:
-   - Identify data types (numeric, text, date, currency)
-   - Count records in each category
-   - Detect nested structures requiring flattening
-   - Identify key metrics and KPIs
+# Create Excel File with Professional Formatting
+5. Create a Python script using save_to_file_and_run with this EXACT pattern:
 
-# Python Script Creation Phase
-4. Create comprehensive Python script using save_to_file_and_run:
-   
-   ## Import and Setup Section
-   - Import all required libraries
-   - Set up Excel writer with openpyxl engine
-   - Define color schemes and formatting constants
-   
-   ## Data Processing Section
-   - Read and parse JSON data with error handling
-   - Clean and prepare data for Excel
-   - Flatten nested structures intelligently
-   - Convert data types appropriately
-   
-   ## Workbook Structure Creation
-   - Create Excel workbook with professional layout:
-     * Executive Summary Dashboard (first sheet)
-     * Company Overview (identification data)
-     * Financial Metrics (organized by category)
-     * Detailed Analysis sheets (as needed)
-     * Data Quality/Metadata sheet
-   
-   ## Professional Formatting Implementation
-   - Headers:
-     * Bold, 12pt font
-     * Background: #1f4788 (corporate blue)
-     * Text: white, centered
-     * Bottom border: thick
-   
-   - Data Rows:
-     * Alternating colors (#FFFFFF and #F2F2F2)
-     * Borders: thin, all sides
-     * Padding: appropriate for readability
-   
-   - Special Formatting:
-     * Currency: $#,##0.00 accounting format
-     * Percentages: 0.00% with color coding
-     * Dates: DD-MMM-YYYY format
-     * Negative values: red text or (parentheses)
-   
-   ## Advanced Features Implementation
-   - Column Management:
-     * Auto-fit widths with max limit
-     * Freeze top row (headers)
-     * Apply filters to data ranges
-   
-   - Data Enhancements:
-     * Year-over-Year calculations
-     * Growth percentages
-     * Running totals
-     * Variance analysis
-   
-   - Visual Elements:
-     * Conditional formatting for insights
-     * Data bars for comparisons
-     * Color scales for heat maps
-     * Icon sets for trends
-   
-   - Summary Dashboard:
-     * Key metrics with large fonts
-     * Sparklines for trends
-     * Summary statistics
-     * Data quality indicators
+```python
+import pandas as pd
+import json
+from openpyxl import Workbook
+from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+from openpyxl.utils import get_column_letter
+from datetime import datetime
 
-# Execution and Validation Phase
-5. Execute the Python script:
-   - Run the script with proper error handling
-   - Capture any execution errors
-   - Log progress messages
+# Read JSON data
+with open('data.json', 'r') as f:
+    data = json.load(f)
 
-6. Validate Excel output:
-   - Verify file creation successful
-   - Check all expected sheets exist
-   - Confirm formatting applied correctly
-   - Validate formulas and calculations
+# Create Excel writer
+excel_file = 'output_report.xlsx'
+writer = pd.ExcelWriter(excel_file, engine='openpyxl')
 
-7. Generate completion report:
-   - File path and size
-   - Number of sheets created
-   - Record counts per sheet
-   - Any data quality issues found
-   - Suggestions for improvements
+# Define color scheme
+COLORS = {
+    'header_bg': '1F4788',  # Dark blue
+    'header_text': 'FFFFFF',  # White
+    'alt_row': 'F2F2F2',  # Light gray
+    'border': 'B8B8B8',  # Gray border
+}
 
-# Error Handling Throughout
-- Implement try-except blocks for each major operation
-- Provide detailed error messages
-- Continue processing even if some sections fail
-- Log all issues for user awareness
+# Process each data section into sheets
+# [Your data processing logic here based on the JSON structure]
 
-# Performance Optimization
-- Use chunking for large datasets
-- Optimize memory usage
-- Implement progress indicators
-- Cache repeated calculations
+# Write DataFrames to Excel
+for sheet_name, df in dataframes.items():
+    df.to_excel(writer, sheet_name=sheet_name[:31], index=False)
+    
+    # Get the worksheet
+    worksheet = writer.sheets[sheet_name[:31]]
+    
+    # Apply header formatting
+    header_font = Font(bold=True, color=COLORS['header_text'], size=12)
+    header_fill = PatternFill(start_color=COLORS['header_bg'], 
+                             end_color=COLORS['header_bg'], 
+                             fill_type='solid')
+    header_alignment = Alignment(horizontal='center', vertical='center')
+    
+    # Format headers (row 1)
+    for cell in worksheet[1]:
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = header_alignment
+        cell.border = Border(bottom=Side(style='thick', color=COLORS['border']))
+    
+    # Apply data formatting
+    for row_num in range(2, worksheet.max_row + 1):
+        # Alternating row colors
+        if row_num % 2 == 0:
+            fill = PatternFill(start_color=COLORS['alt_row'], 
+                              end_color=COLORS['alt_row'], 
+                              fill_type='solid')
+            for cell in worksheet[row_num]:
+                cell.fill = fill
+        
+        # Apply borders to all cells
+        for cell in worksheet[row_num]:
+            cell.border = Border(
+                left=Side(style='thin', color=COLORS['border']),
+                right=Side(style='thin', color=COLORS['border']),
+                top=Side(style='thin', color=COLORS['border']),
+                bottom=Side(style='thin', color=COLORS['border'])
+            )
+    
+    # Format specific column types
+    for col_idx, col_name in enumerate(df.columns, 1):
+        col_letter = get_column_letter(col_idx)
+        
+        # Currency columns (containing 'amount', 'price', 'cost', 'revenue', etc.)
+        if any(term in col_name.lower() for term in ['amount', 'price', 'cost', 'revenue', 'value', 'salary']):
+            for row in range(2, worksheet.max_row + 1):
+                cell = worksheet[f'{col_letter}{row}']
+                cell.number_format = '$#,##0.00'
+        
+        # Percentage columns
+        elif any(term in col_name.lower() for term in ['percent', 'rate', 'ratio']):
+            for row in range(2, worksheet.max_row + 1):
+                cell = worksheet[f'{col_letter}{row}']
+                cell.number_format = '0.0%'
+        
+        # Date columns
+        elif any(term in col_name.lower() for term in ['date', 'time', 'created', 'updated']):
+            for row in range(2, worksheet.max_row + 1):
+                cell = worksheet[f'{col_letter}{row}']
+                cell.number_format = 'DD-MMM-YYYY'
+        
+        # Number columns with thousand separators
+        elif df[col_name].dtype in ['int64', 'float64']:
+            for row in range(2, worksheet.max_row + 1):
+                cell = worksheet[f'{col_letter}{row}']
+                cell.number_format = '#,##0'
+    
+    # Auto-adjust column widths
+    for column in worksheet.columns:
+        max_length = 0
+        column_letter = column[0].column_letter
+        
+        for cell in column:
+            try:
+                if len(str(cell.value)) > max_length:
+                    max_length = len(str(cell.value))
+            except:
+                pass
+        
+        adjusted_width = min(max_length + 2, 50)  # Cap at 50 characters
+        worksheet.column_dimensions[column_letter].width = adjusted_width
+    
+    # Freeze the header row
+    worksheet.freeze_panes = 'A2'
+    
+    # Add autofilter
+    worksheet.auto_filter.ref = worksheet.dimensions
+
+# Save the Excel file
+writer.close()
+print(f"Excel file created successfully: {excel_file}")
+```
+
+# Important Implementation Notes
+6. ALWAYS use the exact formatting code above
+7. ALWAYS apply ALL formatting (headers, borders, colors, number formats)
+8. ALWAYS auto-adjust column widths
+9. ALWAYS freeze the header row
+10. ALWAYS add autofilters
+11. Handle errors gracefully but ensure formatting is applied

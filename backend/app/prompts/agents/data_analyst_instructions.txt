@@ -1,93 +1,37 @@
-# Data Analysis Phase
-1. Read and parse the JSON file completely using the read_file tool
-2. Map the entire data structure including all nested objects, arrays, and relationships
-3. Calculate total record counts for each data category and subcategory
-4. Identify and catalog all unique values in categorical/enum fields
+# Quick Analysis Phase
+1. Read the JSON file using read_file tool
+2. Understand the data structure - what types of data are present
+3. Count how many records exist for each type of data
 
-# Pattern Recognition Phase
-5. Detect and document data patterns:
-   - Time series patterns (dates, periods, trends)
-   - Hierarchical relationships between entities
-   - Cross-references and foreign key relationships
-   - Numerical patterns and distributions
+# Excel Structure Decision Phase
+4. Decide how to organize the Excel file:
+   - How many sheets do we need?
+   - What should each sheet contain?
+   - What should we name each sheet?
+   - What order should the sheets be in?
 
-# Financial Analysis Phase
-6. Analyze financial metrics in detail:
-   - Revenue streams and categorization
-   - Cost structures and breakdowns
-   - Profitability metrics and margins
-   - Key performance indicators (KPIs)
+5. For each sheet, determine:
+   - Column headers (clear, descriptive names)
+   - Column order (most important data first)
+   - Which columns need special formatting (currency, dates, percentages)
+   - Which rows should be grouped or separated
 
-# Excel Structure Design Phase
-7. Design optimal sheet organization:
-   - Group related data into logical sheets
-   - Plan sheet naming (max 31 chars, no special chars)
-   - Define sheet order for logical flow
-   - Consider data volume per sheet
+6. Plan the formatting for professional appearance:
+   - Header row: Bold, white text on dark blue background (#1F4788)
+   - Data rows: Alternating white and light gray (#F2F2F2)
+   - Currency columns: $ symbol with 2 decimals
+   - Percentage columns: % symbol with 1 decimal
+   - Date columns: DD-MMM-YYYY format
+   - Number columns: Comma separators for thousands
 
-8. Plan summary dashboards:
-   - Executive summary with key metrics
-   - Visual indicators for performance
-   - Drill-down capabilities to detail sheets
-   - Cross-sheet references for live updates
+7. Identify any summary rows or totals needed:
+   - Sum totals for numeric columns
+   - Count totals for records
+   - Average calculations where useful
 
-9. Define calculated fields:
-   - Year-over-Year (YoY) growth percentages
-   - Month-over-Month (MoM) comparisons
-   - Ratios (profit margins, efficiency ratios)
-   - Running totals and averages
-   - Variance analysis fields
-
-# Data Quality & Formatting Phase
-10. Specify data validation rules:
-    - Required fields that cannot be empty
-    - Valid ranges for numerical data
-    - Date format constraints
-    - Dropdown lists for categorical data
-
-11. Define professional formatting:
-    - Headers: Bold, colored backgrounds
-    - Currency: Accounting format with symbols
-    - Percentages: 2 decimal places with % symbol
-    - Dates: Consistent format (DD-MMM-YYYY)
-    - Numbers: Thousand separators
-
-12. Plan advanced features:
-    - Conditional formatting rules for insights
-    - Pivot table opportunities
-    - Chart recommendations
-    - Filter and sort configurations
-
-# Quality Assurance Phase
-13. Identify data quality considerations:
-    - Missing or null value handling
-    - Outlier detection and flagging
-    - Data consistency checks
-    - Special handling requirements
-
-14. Consider end-user requirements:
-    - Executive dashboard needs
-    - Analyst detailed views
-    - Export/print considerations
-    - Mobile viewing compatibility
-
-# Output Generation Phase
-15. Generate comprehensive ExcelSpecification:
-    - Complete sheet structures
-    - Formatting rules per sheet
-    - Formula definitions
-    - Validation rules
-    - Chart specifications
-    - Summary insights
-
-16. Include implementation notes:
-    - Complex formula explanations
-    - Data transformation requirements
-    - Performance considerations
-    - Update frequency recommendations
-
-17. Provide data insights summary:
-    - Key findings from analysis
-    - Data quality observations
-    - Improvement recommendations
-    - Business intelligence opportunities
+# Output Generation
+8. Create the ExcelSpecification with:
+   - Clear sheet names and purposes
+   - Column headers for each sheet
+   - Formatting rules for each column type
+   - Any special notes for the Excel generator

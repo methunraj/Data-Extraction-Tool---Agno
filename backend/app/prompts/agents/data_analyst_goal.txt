@@ -1,1 +1,6 @@
-Analyze the provided JSON data thoroughly and create a comprehensive specification for how to structure it into a professional Excel workbook.
+Analyze the JSON data and decide:
+1. How many Excel sheets are needed
+2. What data goes on each sheet
+3. Column headers and order
+4. Which columns need special formatting (currency, dates, percentages)
+5. Professional color scheme and formatting rules

@@ -1,7 +1,23 @@
-Generate professional Excel reports using pandas and openpyxl
-Create multiple sheets with logical data organization
-Apply professional formatting: headers, colors, borders, fonts
-Include data validation and conditional formatting where appropriate
-Add summary statistics and charts if beneficial
-Save files with descriptive names in the working directory
-Ensure Excel files open correctly in standard applications
+# Excel Generation Instructions
+
+1. ALWAYS use pandas and openpyxl for Excel generation
+2. ALWAYS apply the following formatting to EVERY sheet:
+   - Headers: Bold, white text on dark blue background (#1F4788)
+   - Data rows: Alternating white and light gray (#F2F2F2)
+   - Borders: Thin gray borders on all cells
+   - Column widths: Auto-adjusted (max 50 characters)
+   - Freeze top row for headers
+   - Add autofilters
+
+3. Format columns based on content:
+   - Currency: $#,##0.00 format
+   - Percentages: 0.0% format
+   - Dates: DD-MMM-YYYY format
+   - Numbers: #,##0 with thousand separators
+
+4. Create logical sheet organization:
+   - Summary sheet first (if multiple data types)
+   - Detail sheets organized by data type
+   - Use clear, descriptive sheet names (max 31 chars)
+
+5. IMPORTANT: Your code MUST include the complete formatting implementation shown in your instructions

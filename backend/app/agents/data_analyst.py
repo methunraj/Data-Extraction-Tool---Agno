@@ -60,7 +60,19 @@ class DataAnalystAgent(Agent):
             ],
             description=load_prompt("agents/data_analyst_description.txt"),
             goal=load_prompt("agents/data_analyst_goal.txt"),
-            instructions=load_prompt("agents/data_analyst_instructions.txt").split('\n'),
+            instructions=[
+                "# Quick Analysis Phase",
+                "1. Read the JSON file using read_file tool",
+                "2. Understand the data structure - what types of data are present",
+                "3. Count how many records exist for each type of data",
+                "# Excel Structure Decision Phase",
+                "4. Decide how to organize the Excel file",
+                "5. For each sheet, determine columns and formatting",
+                "6. Plan the formatting for professional appearance",
+                "7. Identify any summary rows or totals needed",
+                "# Output Generation",
+                "8. Create the ExcelSpecification with all details"
+            ],
             expected_output=load_prompt("agents/data_analyst_expected_output.txt"),
             response_model=ExcelSpecification,  # This ensures structured output
             markdown=False,

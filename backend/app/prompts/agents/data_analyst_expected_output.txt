@@ -1,1 +1,6 @@
-A detailed ExcelSpecification object containing sheet structures, formatting rules, and data insights that will guide the Excel generation process.
+An ExcelSpecification with:
+- Clear sheet names and what data each contains
+- Column headers in the order they should appear
+- Formatting rules (which columns are currency, dates, etc.)
+- Summary of what was found in the data
+- Any special notes for Excel generation

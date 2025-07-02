@@ -2,8 +2,9 @@
 Simplified Prompt Engineer Workflow using Agno's native structured outputs.
 One agent, structured response_model, built-in reasoning - pure simplicity.
 """
-from typing import Dict, List, Any, Optional
-from pydantic import BaseModel, Field
+from typing import Dict, List, Any, Optional, Union
+from pydantic import BaseModel, Field, model_validator
+import json
 
 from agno.agent import Agent
 
@@ -22,9 +23,14 @@ class Example(BaseModel):
 class ExtractionSchema(BaseModel):
     """Structured extraction configuration - validated by Agno automatically."""
     
-    json_schema: str = Field(
-        ..., 
+    # Support both field names for compatibility
+    schema: Optional[str] = Field(
+        None, 
         description="Complete JSON schema as a string with all required fields, types, and descriptions"
+    )
+    json_schema: Optional[str] = Field(
+        None, 
+        description="Complete JSON schema as a string (alternative field name)"
     )
     system_prompt: str = Field(
         ..., 
@@ -32,20 +38,45 @@ class ExtractionSchema(BaseModel):
     )
     user_prompt_template: str = Field(
         ..., 
-        description="User prompt template with clear placeholders like {document_text}"
+        description="User prompt template with clear placeholders like {{document_text}}"
     )
     examples: List[Example] = Field(
         default_factory=list, 
         description="2-3 high-quality few-shot examples showing input-output pairs"
     )
-    extraction_instructions: List[str] = Field(
-        default_factory=list,
+    reasoning: Optional[str] = Field(
+        None, 
+        description="Detailed explanation of design choices and approach"
+    )
+    
+    # Optional fields that may be returned by the model
+    extraction_instructions: Optional[List[str]] = Field(
+        None,
         description="Step-by-step instructions for the extraction process"
     )
-    validation_rules: List[str] = Field(
-        default_factory=list,
+    validation_rules: Optional[List[str]] = Field(
+        None,
         description="Rules to validate the extracted data quality"
     )
+    
+    @model_validator(mode='before')
+    def handle_schema_fields(cls, values):
+        """Handle both schema and json_schema fields."""
+        # If we have json_schema but not schema, copy it over
+        if 'json_schema' in values and values.get('json_schema') and not values.get('schema'):
+            values['schema'] = values['json_schema']
+        # If neither is provided, we'll let Pydantic handle the error
+        return values
+    
+    @model_validator(mode='after')
+    def validate_schema_exists(self):
+        """Ensure we have at least one schema field."""
+        if not self.schema and not self.json_schema:
+            raise ValueError("Either 'schema' or 'json_schema' must be provided")
+        return self
+    
+    class Config:
+        extra = 'allow'  # Allow extra fields from the model
 
 
 class PromptEngineerWorkflow:
@@ -66,9 +97,15 @@ class PromptEngineerWorkflow:
         self.engineer = Agent(
             name="PromptEngineer",
             model=get_structured_model(model_id=model_id),  # Use provided model or default
-            instructions=load_prompt("workflows/prompt_engineer_instructions.txt").split('\n'),
+            instructions=[
+                "Generate comprehensive extraction configurations",
+                "Create detailed JSON schemas for data extraction",
+                "Write clear system and user prompts",
+                "Provide realistic examples",
+                "Include validation rules and instructions"
+            ],
             response_model=ExtractionSchema,  # Structured output - no parsing needed!
-            use_json_mode=True,  # Use JSON mode for complex nested structures
+            structured_outputs=True,
             markdown=False,  # Disable markdown for cleaner JSON output
             memory=self.workflow_memory,
             storage=self.workflow_storage,
@@ -91,21 +128,50 @@ class PromptEngineerWorkflow:
         print(f"[PromptEngineer] Response type: {type(response)}")
         if hasattr(response, 'content'):
             print(f"[PromptEngineer] Content type: {type(response.content)}")
-            print(f"[PromptEngineer] Content: {response.content}")
+            if isinstance(response.content, str):
+                print(f"[PromptEngineer] Content preview: {response.content[:200]}...")
+            elif isinstance(response.content, dict):
+                print(f"[PromptEngineer] Content keys: {list(response.content.keys())}")
         
         # Extract the structured content from RunResponse
-        if hasattr(response, 'content') and isinstance(response.content, ExtractionSchema):
-            return response.content
-        elif hasattr(response, 'content') and isinstance(response.content, dict):
-            # Try to create ExtractionSchema from dict
-            try:
-                return ExtractionSchema(**response.content)
-            except Exception as e:
-                print(f"[PromptEngineer] Failed to create ExtractionSchema from dict: {e}")
-                raise ValueError(f"Failed to parse response as ExtractionSchema: {e}")
-        else:
-            print(f"[PromptEngineer] Invalid response format")
-            raise ValueError("No valid structured response generated")
+        if hasattr(response, 'content'):
+            # Case 1: Already an ExtractionSchema object
+            if isinstance(response.content, ExtractionSchema):
+                return response.content
+            
+            # Case 2: Dict that needs to be converted
+            elif isinstance(response.content, dict):
+                try:
+                    return ExtractionSchema(**response.content)
+                except Exception as e:
+                    print(f"[PromptEngineer] Failed to create ExtractionSchema from dict: {e}")
+                    print(f"[PromptEngineer] Dict keys: {list(response.content.keys())}")
+                    raise ValueError(f"Failed to parse response as ExtractionSchema: {e}")
+            
+            # Case 3: JSON string that needs parsing
+            elif isinstance(response.content, str):
+                try:
+                    # Try to parse as JSON
+                    parsed = json.loads(response.content)
+                    return ExtractionSchema(**parsed)
+                except json.JSONDecodeError as e:
+                    print(f"[PromptEngineer] Failed to parse as JSON: {e}")
+                    # Maybe it's a plain text response, try to extract JSON from it
+                    import re
+                    json_match = re.search(r'\{[\s\S]*\}', response.content)
+                    if json_match:
+                        try:
+                            parsed = json.loads(json_match.group())
+                            return ExtractionSchema(**parsed)
+                        except Exception as e:
+                            print(f"[PromptEngineer] Failed to extract JSON from string: {e}")
+                    raise ValueError("Response is not valid JSON")
+                except Exception as e:
+                    print(f"[PromptEngineer] Failed to parse string response: {e}")
+                    raise ValueError(f"Failed to parse response as ExtractionSchema: {e}")
+        
+        print(f"[PromptEngineer] No valid content in response")
+        raise ValueError("No valid structured response generated")
     
     def run_with_examples(self, requirements: str, sample_documents: List[str]) -> ExtractionSchema:
         """
@@ -127,81 +193,27 @@ class PromptEngineerWorkflow:
         # Direct agent call returns RunResponse
         response = self.engineer.run(enhanced_prompt)
         
-        # Debug logging
-        print(f"[PromptEngineer] Response type: {type(response)}")
-        if hasattr(response, 'content'):
-            print(f"[PromptEngineer] Content type: {type(response.content)}")
-        
-        # Extract the structured content from RunResponse
-        if hasattr(response, 'content') and isinstance(response.content, ExtractionSchema):
-            return response.content
-        elif hasattr(response, 'content') and isinstance(response.content, dict):
-            # Try to create ExtractionSchema from dict
-            try:
-                return ExtractionSchema(**response.content)
-            except (TypeError, ValueError, KeyError) as e:
-                print(f"[PromptEngineer] Failed to create ExtractionSchema from dict: {e}")
-                import traceback
-                print(f"[PromptEngineer] Full traceback: {traceback.format_exc()}")
-                raise ValueError(f"Failed to parse response as ExtractionSchema: {e}") from e
-            except Exception as e:
-                print(f"[PromptEngineer] Unexpected error creating ExtractionSchema: {e}")
-                import traceback
-                print(f"[PromptEngineer] Full traceback: {traceback.format_exc()}")
-                raise RuntimeError(f"Unexpected error during schema creation: {e}") from e
-        else:
-            print(f"[PromptEngineer] Invalid response format")
-            raise ValueError("No valid structured response generated")
+        # Use the same parsing logic as run()
+        return self._parse_response(response)
     
-    def refine_configuration(self, current_config: ExtractionSchema, feedback: str) -> ExtractionSchema:
-        """
-        Refine existing configuration based on feedback.
-        Pure Python - simple method calls.
-        """
-        
-        refinement_prompt = f"""
-        Improve this existing extraction configuration based on the provided feedback:
-        
-        **Current Configuration:**
-        - JSON Schema: {current_config.json_schema}
-        - System Prompt: {current_config.system_prompt}
-        - User Prompt Template: {current_config.user_prompt_template}
-        - Examples: {len(current_config.examples)} examples provided
-        
-        **Feedback to Address:**
-        {feedback}
-        
-        Generate an improved configuration that addresses all the feedback while maintaining the quality of the existing configuration.
-        Focus on:
-        1. Fixing any identified issues in the schema or prompts
-        2. Adding missing fields or improving field definitions
-        3. Enhancing the clarity and specificity of prompts
-        4. Improving or adding better few-shot examples
-        5. Strengthening validation rules
-        
-        Return the complete refined configuration.
-        """
-        
-        # Direct agent call returns RunResponse
-        response = self.engineer.run(refinement_prompt)
-        
-        # Extract the structured content from RunResponse
-        if hasattr(response, 'content') and isinstance(response.content, ExtractionSchema):
-            return response.content
-        elif hasattr(response, 'content') and isinstance(response.content, dict):
-            # Try to create ExtractionSchema from dict
-            try:
+    def _parse_response(self, response) -> ExtractionSchema:
+        """Helper method to parse response into ExtractionSchema."""
+        if hasattr(response, 'content'):
+            if isinstance(response.content, ExtractionSchema):
+                return response.content
+            elif isinstance(response.content, dict):
                 return ExtractionSchema(**response.content)
-            except (TypeError, ValueError, KeyError) as e:
-                print(f"[PromptEngineer] Failed to create ExtractionSchema from dict: {e}")
-                import traceback
-                print(f"[PromptEngineer] Full traceback: {traceback.format_exc()}")
-                raise ValueError(f"Failed to parse response as ExtractionSchema: {e}") from e
-            except Exception as e:
-                print(f"[PromptEngineer] Unexpected error creating ExtractionSchema: {e}")
-                import traceback
-                print(f"[PromptEngineer] Full traceback: {traceback.format_exc()}")
-                raise RuntimeError(f"Unexpected error during schema creation: {e}") from e
-        else:
-            print(f"[PromptEngineer] Invalid response format")
-            raise ValueError("No valid structured response generated")
+            elif isinstance(response.content, str):
+                try:
+                    parsed = json.loads(response.content)
+                    return ExtractionSchema(**parsed)
+                except Exception as e:
+                    # Try to extract JSON from text
+                    import re
+                    json_match = re.search(r'\{[\s\S]*\}', response.content)
+                    if json_match:
+                        parsed = json.loads(json_match.group())
+                        return ExtractionSchema(**parsed)
+                    raise ValueError(f"Failed to parse response: {e}")
+        
+        raise ValueError("No valid structured response generated")

@@ -1,1 +1,7 @@
-Convert the provided JSON financial data into a professionally formatted Excel file with multiple sheets, proper headers, color coding, and intelligent data organization.
+Create a professional Excel file from JSON data with:
+- Proper sheet organization
+- Bold headers with blue background
+- Alternating row colors
+- Currency/date/percentage formatting
+- Borders and auto-adjusted column widths
+- Frozen header row and autofilters

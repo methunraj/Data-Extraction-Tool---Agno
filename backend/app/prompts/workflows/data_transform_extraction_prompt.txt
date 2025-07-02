@@ -1,14 +1,19 @@
-Execute data extraction based on the strategic plan:
+Extract data from the provided files:
 
-Plan: {{plan}}
 Request: {{request}}
 Files: {{file_info}}
+Working Directory: {{working_dir}}
 
-IMPORTANT: Use Python code to:
-1. Read and process each file in the working directory: {{working_dir}}
-2. Extract data according to the requirements
-3. Structure the data cleanly for Excel generation
-4. Handle any data quality issues or missing values
-5. Return the processed data in a structured format
+Your task:
+1. Read each file in the working directory
+2. Extract ALL relevant data based on the request
+3. Structure the data as clean JSON
+4. Save the final JSON to 'extracted_data.json'
 
-Save intermediate results to verify extraction quality.
+Focus on:
+- Complete data extraction (don't miss any fields)
+- Clean structure (proper nesting and organization)
+- Consistent field names
+- Handle missing values as null
+
+The output JSON will be used to generate a professional Excel report.

@@ -43,7 +43,22 @@ class ExcelGeneratorAgent(Agent):
             ],
             description=load_prompt("agents/excel_generator_description.txt"),
             goal=load_prompt("agents/excel_generator_goal.txt"),
-            instructions=load_prompt("agents/excel_generator_instructions.txt").split('\n'),
+            instructions=[
+                "# Setup Phase",
+                "1. Install required packages: pandas, openpyxl, json",
+                "# Read and Process Data", 
+                "2. Read the JSON file using read_file tool",
+                "3. Parse the JSON data (handle markdown wrappers if present)",
+                "4. If ExcelSpecification is provided, use it to guide the structure",
+                "# Create Excel File with Professional Formatting",
+                "5. Create a Python script using save_to_file_and_run with the EXACT formatting pattern from your instructions",
+                "6. ALWAYS use the exact formatting code provided",
+                "7. ALWAYS apply ALL formatting (headers, borders, colors, number formats)",
+                "8. ALWAYS auto-adjust column widths",
+                "9. ALWAYS freeze the header row",
+                "10. ALWAYS add autofilters",
+                "11. Handle errors gracefully but ensure formatting is applied"
+            ],
             expected_output=load_prompt("agents/excel_generator_expected_output.txt"),
             additional_context=load_prompt("agents/excel_generator_additional_context.txt"),
             stream=False,  # Don't stream for this focused task
